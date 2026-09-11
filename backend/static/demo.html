@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Acme SaaS — Customer Host Website Demonstration</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <!-- Navbar -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+    <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-lg">A</div>
+        <span class="font-bold text-xl text-slate-800 tracking-tight">Acme Cloud</span>
+      </div>
+      <nav class="flex items-center gap-6 text-sm font-medium text-slate-600">
+        <a href="#features" class="hover:text-indigo-600 transition-colors">Features</a>
+        <a href="#pricing" class="hover:text-indigo-600 transition-colors">Pricing</a>
+        <a href="#about" class="hover:text-indigo-600 transition-colors">About Us</a>
+        <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-sm">
+          Get Started
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <main class="max-w-6xl mx-auto px-6 py-16">
+    <div class="text-center max-w-3xl mx-auto">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-semibold mb-6">
+        <span>✨ Interactive Demo</span>
+        <span>•</span>
+        <span>Embeddable Website RAG Chatbot</span>
+      </div>
+      <h1 class="text-4xl sm:text-5xl font-extrabold text-slate-900 tracking-tight leading-tight">
+        Next-Generation Enterprise Cloud Infrastructure
+      </h1>
+      <p class="mt-6 text-lg text-slate-600 leading-relaxed">
+        Deploy scalable microservices and database clusters with automated global failover and 99.99% guaranteed uptime SLA.
+      </p>
+
+      <!-- Bot ID Switcher for Demo -->
+      <div class="mt-8 p-5 bg-white border border-slate-200 rounded-xl shadow-md text-left max-w-xl mx-auto">
+        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+          Active Chatbot Target (bot_id):
+        </label>
+        <div class="flex flex-col sm:flex-row gap-2">
+          <input
+            id="bot-id-input"
+            type="text"
+            placeholder="Paste your bot_id here..."
+            class="flex-1 px-3.5 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+          />
+          <button
+            id="load-bot-btn"
+            class="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white text-sm font-semibold rounded-lg transition-colors whitespace-nowrap"
+          >
+            Load Widget
+          </button>
+          <button
+            id="open-chat-btn"
+            class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold rounded-lg transition-colors whitespace-nowrap shadow-sm"
+          >
+            Open Chat
+          </button>
+        </div>
+        
+        <div class="mt-3 flex items-center justify-between flex-wrap gap-2 text-xs">
+          <span id="widget-status" class="text-emerald-600 font-medium flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            Widget Active (Click floating bubble or "Open Chat")
+          </span>
+          <a
+            id="standalone-link"
+            href="/widget/chat?bot_id=bot_e53185f05f8a"
+            target="_blank"
+            class="text-indigo-600 hover:text-indigo-800 font-semibold underline"
+          >
+            Open Standalone Chat Page &rarr;
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pricing Section -->
+    <section id="pricing" class="mt-20">
+      <h2 class="text-2xl font-bold text-center text-slate-900">Simple, Transparent Pricing</h2>
+      <p class="text-slate-500 text-center text-sm mt-1">Grounding knowledge for the AI chatbot to reference</p>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10">
+        <!-- Starter Plan -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 class="font-bold text-lg text-slate-800">Starter Plan</h3>
+          <div class="mt-4 flex items-baseline gap-1">
+            <span class="text-3xl font-extrabold text-slate-900">$29</span>
+            <span class="text-slate-500 text-sm">/ month</span>
+          </div>
+          <p class="text-slate-500 text-xs mt-2">For small projects and prototypes.</p>
+          <ul class="mt-6 space-y-3 text-sm text-slate-600">
+            <li class="flex items-center gap-2">✓ 2 CPU Cores</li>
+            <li class="flex items-center gap-2">✓ 4GB RAM Memory</li>
+            <li class="flex items-center gap-2">✓ Community Forum Support</li>
+          </ul>
+        </div>
+
+        <!-- Pro Plan -->
+        <div class="bg-white p-6 rounded-2xl border-2 border-indigo-600 shadow-md relative">
+          <div class="absolute -top-3 right-6 bg-indigo-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+            Most Popular
+          </div>
+          <h3 class="font-bold text-lg text-slate-800">Pro Plan</h3>
+          <div class="mt-4 flex items-baseline gap-1">
+            <span class="text-3xl font-extrabold text-slate-900">$99</span>
+            <span class="text-slate-500 text-sm">/ month</span>
+          </div>
+          <p class="text-slate-500 text-xs mt-2">For high-traffic production workloads.</p>
+          <ul class="mt-6 space-y-3 text-sm text-slate-600">
+            <li class="flex items-center gap-2">✓ 8 CPU Cores</li>
+            <li class="flex items-center gap-2">✓ 32GB RAM Memory</li>
+            <li class="flex items-center gap-2">✓ Automated Daily Backups</li>
+            <li class="flex items-center gap-2">✓ 24/7 Priority Email & Chat Support</li>
+          </ul>
+        </div>
+
+        <!-- Enterprise Plan -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h3 class="font-bold text-lg text-slate-800">Enterprise Plan</h3>
+          <div class="mt-4 flex items-baseline gap-1">
+            <span class="text-3xl font-extrabold text-slate-900">$499</span>
+            <span class="text-slate-500 text-sm">/ month</span>
+          </div>
+          <p class="text-slate-500 text-xs mt-2">For mission-critical enterprise fleets.</p>
+          <ul class="mt-6 space-y-3 text-sm text-slate-600">
+            <li class="flex items-center gap-2">✓ Unlimited Dedicated Nodes</li>
+            <li class="flex items-center gap-2">✓ 99.99% Uptime SLA Guarantee</li>
+            <li class="flex items-center gap-2">✓ Dedicated Account Manager</li>
+            <li class="flex items-center gap-2">✓ SOC-2 & HIPAA Compliance</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Embed Widget Script Loader -->
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const initialBotId = params.get("bot_id") || "bot_e53185f05f8a";
+    const input = document.getElementById("bot-id-input");
+    const loadBtn = document.getElementById("load-bot-btn");
+    const openChatBtn = document.getElementById("open-chat-btn");
+    const standaloneLink = document.getElementById("standalone-link");
+    const statusSpan = document.getElementById("widget-status");
+
+    function injectWidgetScript(botId) {
+      if (!botId) return;
+      // Update UI targets
+      if (standaloneLink) standaloneLink.href = `/widget/chat?bot_id=${encodeURIComponent(botId)}`;
+      if (statusSpan) statusSpan.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Target: <code class="bg-slate-100 px-1 py-0.5 rounded text-indigo-700 font-mono">${botId}</code> (Ready)`;
+
+      // Remove any existing widget elements
+      const oldBtn = document.getElementById("rag-launcher-btn");
+      const oldContainer = document.getElementById("rag-chat-container");
+      const oldStyle = document.getElementById("rag-widget-styles");
+      if (oldBtn) oldBtn.remove();
+      if (oldContainer) oldContainer.remove();
+      if (oldStyle) oldStyle.remove();
+      window.__RAG_WIDGET_LOADED__ = false;
+
+      // Inject widget with cache-busting timestamp
+      const s = document.createElement("script");
+      s.src = `/static/widget.js?v=${Date.now()}`;
+      s.setAttribute("data-bot-id", botId);
+      s.setAttribute("data-api-host", window.location.origin);
+      document.body.appendChild(s);
+    }
+
+    if (initialBotId) {
+      input.value = initialBotId;
+      injectWidgetScript(initialBotId);
+    }
+
+    function handleLoad() {
+      const val = input.value.trim();
+      if (val) {
+        window.location.search = `?bot_id=${encodeURIComponent(val)}`;
+      }
+    }
+
+    loadBtn.addEventListener("click", handleLoad);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleLoad();
+      }
+    });
+
+    if (openChatBtn) {
+      openChatBtn.addEventListener("click", () => {
+        if (window.RAGChatWidget && typeof window.RAGChatWidget.open === "function") {
+          window.RAGChatWidget.open();
+        } else {
+          const btn = document.getElementById("rag-launcher-btn");
+          if (btn) btn.click();
+        }
+      });
+    }
+  </script>
+</body>
+</html>
+

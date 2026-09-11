@@ -1,0 +1,34 @@
+{
+  "uid": "rag_campaigner_oauth_app",
+  "type": "app",
+  "config": {
+    "description": "AI RAG Email Campaigner HubSpot OAuth Integration",
+    "name": "rag-campaigner-oauth-App",
+    "distribution": "marketplace",
+    "auth": {
+      "type": "oauth",
+      "redirectUrls": [
+        "http://localhost:8000/api/auth/hubspot/callback"
+      ],
+      "requiredScopes": [
+        "crm.objects.contacts.read",
+        "oauth"
+      ],
+      "optionalScopes": [],
+      "conditionallyRequiredScopes": []
+    },
+    "permittedUrls": {
+      "fetch": [
+        "https://api.hubapi.com"
+      ],
+      "iframe": [],
+      "img": []
+    },
+    "support": {
+      "supportEmail": "support@example.com",
+      "documentationUrl": "https://example.com/docs",
+      "supportUrl": "https://example.com/support",
+      "supportPhone": "+18005555555"
+    }
+  }
+}

@@ -1,0 +1,3390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>AI RAG Email Campaigner — Admin & Outreach Studio</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Marked.js for Markdown viewer -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- DOMPurify -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+  <!-- React & ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'charcoal-deep': '#080A0D',
+            'charcoal': '#111418',
+            'graphite': '#1A1D21',
+            'silver': '#C8CBD0',
+            'silver-bright': '#E8EAEC',
+            'silver-muted': '#9EA3AA',
+            'gold': '#D6A84F',
+            'gold-bright': '#F0C76A',
+            'gold-deep': '#9C7229',
+            'text-primary': '#F5F5F3',
+            'text-muted': '#8C9299',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    :root {
+      --bg-charcoal-deep: #080A0D;
+      --bg-charcoal: #111418;
+      --bg-graphite: #1A1D21;
+      --structure-silver: #C8CBD0;
+      --structure-silver-bright: #E8EAEC;
+      --structure-silver-muted: #9EA3AA;
+      --accent-gold: #D6A84F;
+      --accent-gold-bright: #F0C76A;
+      --accent-gold-deep: #9C7229;
+      --text-primary: #F5F5F3;
+      --text-muted: #8C9299;
+    }
+    body {
+      background-color: #080A0D;
+      color: #F5F5F3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #080A0D;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1A1D21;
+      border: 1px solid rgba(158, 163, 170, 0.2);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #2A2E33;
+    }
+  </style>
+</head>
+<body class="bg-charcoal-deep text-text-primary min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const API_BASE = window.location.origin;
+
+    async function safeJson(res) {
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return { detail: text || `Server error (${res.status})` };
+      }
+    }
+
+function App() {
+
+      const [token, setToken] = useState(localStorage.getItem("rag_auth_token") || "");
+      const [currentUser, setCurrentUser] = useState(null);
+      const [bots, setBots] = useState([]);
+      const [activeBot, setActiveBot] = useState(null);
+      const [contacts, setContacts] = useState([]);
+      const [campaigns, setCampaigns] = useState([]);
+      const [currentView, setCurrentView] = useState("create_campaign"); // "create_campaign" (default guided), "campaigns", "contacts", "crawl"
+      
+      // Auth state: strictly LOGIN | REGISTER
+      const [authMode, setAuthMode] = useState("login"); // "login" | "register"
+      const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+      const [authEmail, setAuthEmail] = useState("");
+      const [authPassword, setAuthPassword] = useState("");
+      const [authOtp, setAuthOtp] = useState("");
+      const [authError, setAuthError] = useState("");
+      const [authNotice, setAuthNotice] = useState("");
+      const [isSubmitting, setIsSubmitting] = useState(false);
+
+      // Modals
+      const [showCreateBotModal, setShowCreateBotModal] = useState(false);
+      const [newBotName, setNewBotName] = useState("");
+      const [newBotUrl, setNewBotUrl] = useState("");
+      const [toastMessage, setToastMessage] = useState("");
+
+      const showToast = (msg) => {
+        setToastMessage(msg);
+        setTimeout(() => setToastMessage(""), 3500);
+      };
+
+      // Check session
+      useEffect(() => {
+        if (token) {
+          fetch(`${API_BASE}/api/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+            .then((res) => {
+              if (!res.ok) throw new Error("Invalid session");
+              return res.json();
+            })
+            .then((user) => {
+              setCurrentUser(user);
+              loadInitialData();
+            })
+            .catch(() => {
+              handleLogout();
+            });
+        }
+      }, [token]);
+
+      const loadInitialData = () => {
+        loadBots();
+        loadContacts();
+        loadCampaigns();
+      };
+
+      const loadBots = () => {
+        if (!token) return;
+        fetch(`${API_BASE}/api/bots`, { headers: { Authorization: `Bearer ${token}` } })
+          .then((res) => res.json())
+          .then((data) => {
+            const list = data.bots || [];
+            setBots(list);
+            if (list.length > 0 && !activeBot) {
+              setActiveBot(list[0]);
+            } else if (activeBot) {
+              const updated = list.find((b) => b.id === activeBot.id);
+              if (updated) setActiveBot(updated);
+            }
+          })
+          .catch((err) => console.error("Error loading bots:", err));
+      };
+
+      const loadContacts = () => {
+        if (!token) return;
+        fetch(`${API_BASE}/api/contacts`, { headers: { Authorization: `Bearer ${token}` } })
+          .then((res) => res.json())
+          .then((data) => setContacts(data.contacts || []))
+          .catch((err) => console.error("Error loading contacts:", err));
+      };
+
+      const loadCampaigns = () => {
+        if (!token) return;
+        fetch(`${API_BASE}/api/campaigns`, { headers: { Authorization: `Bearer ${token}` } })
+          .then((res) => res.json())
+          .then((data) => setCampaigns(data.campaigns || []))
+          .catch((err) => console.error("Error loading campaigns:", err));
+      };
+
+      // AUTHENTICATION HANDLERS (Real OTP Flow)
+      const handleInitiateAuth = async (e) => {
+        e.preventDefault();
+        setAuthError("");
+        setAuthNotice("");
+        setIsSubmitting(true);
+        try {
+          if (authMode === "login") {
+            const res = await fetch(`${API_BASE}/api/auth/initiate-login`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: authEmail.trim(), password: authPassword }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Authentication failed");
+            setIsVerifyingOtp(true);
+            setAuthNotice("We sent a 6-digit verification code to your email address.");
+          } else {
+            const res = await fetch(`${API_BASE}/api/auth/register`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: authEmail.trim(), password: authPassword }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Registration failed");
+            setIsVerifyingOtp(true);
+            setAuthNotice("Account created! We sent a 6-digit verification code to your email address.");
+          }
+        } catch (err) {
+          setAuthError(err.message);
+        } finally {
+          setIsSubmitting(false);
+        }
+      };
+
+      const handleVerifyOtp = async (e) => {
+        e.preventDefault();
+        setAuthError("");
+        setAuthNotice("");
+        if (!authOtp.trim()) {
+          setAuthError("Please enter the 6-digit verification code.");
+          return;
+        }
+        setIsSubmitting(true);
+        try {
+          const res = await fetch(`${API_BASE}/api/auth/verify-otp`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: authEmail.trim(), otp: authOtp.trim() }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Invalid or expired verification code.");
+          localStorage.setItem("rag_auth_token", data.access_token);
+          setToken(data.access_token);
+          setIsVerifyingOtp(false);
+          setAuthOtp("");
+          showToast("Verified and logged in successfully!");
+        } catch (err) {
+          setAuthError(err.message);
+        } finally {
+          setIsSubmitting(false);
+        }
+      };
+
+      const handleResendOtp = async () => {
+        setAuthError("");
+        try {
+          const res = await fetch(`${API_BASE}/api/auth/resend-otp`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: authEmail.trim() }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Failed to resend code");
+          setAuthNotice("A fresh 6-digit verification code has been dispatched to your email address.");
+        } catch (err) {
+          setAuthError(err.message);
+        }
+      };
+
+      const handleLogout = () => {
+        localStorage.removeItem("rag_auth_token");
+        setToken("");
+        setCurrentUser(null);
+        setBots([]);
+        setContacts([]);
+        setCampaigns([]);
+        setActiveBot(null);
+        setIsVerifyingOtp(false);
+      };
+
+      const handleCreateBot = async (e) => {
+        e.preventDefault();
+        if (!newBotName.trim() || !newBotUrl.trim()) return;
+        try {
+          const res = await fetch(`${API_BASE}/api/bots`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ name: newBotName.trim(), website_url: newBotUrl.trim() }),
+          });
+          const bot = await res.json();
+          if (!res.ok) throw new Error(bot.detail || "Bot creation failed");
+
+          try {
+            await fetch(`${API_BASE}/api/bots/${bot.id}/crawl`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ max_pages: 50 }),
+            });
+          } catch (crawlErr) {
+            console.error("Auto-crawl error:", crawlErr);
+          }
+
+          setShowCreateBotModal(false);
+          setNewBotName("");
+          setNewBotUrl("");
+          showToast(`Knowledge source "${bot.name}" created! Crawling started.`);
+          loadBots();
+          setActiveBot(bot);
+          setCurrentView("crawl");
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      // Unauthenticated view (Real Email OTP Flow)
+      if (!token || !currentUser) {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4 bg-charcoal-deep">
+            <div className="w-full max-w-md bg-graphite border border-silver-muted/20 rounded-2xl p-8 shadow-2xl">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-xl bg-gold flex items-center justify-center text-charcoal-deep font-black text-xl shadow-lg">
+                  ✉️
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-text-primary tracking-tight">AI RAG Email Campaigner</h1>
+                  <p className="text-xs text-text-muted">Personalized B2B Outreach from Website Knowledge</p>
+                </div>
+              </div>
+
+              {authError && (
+                <div className="mb-4 p-3 bg-rose-950/40 border border-rose-500/30 rounded-lg text-rose-300 text-xs">
+                  {authError}
+                </div>
+              )}
+
+              {authNotice && (
+                <div className="mb-4 p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-lg text-emerald-300 text-xs">
+                  {authNotice}
+                </div>
+              )}
+
+              {isVerifyingOtp ? (
+                <div>
+                  <div className="text-center mb-6">
+                    <div className="w-12 h-12 rounded-full bg-gold/10 border border-gold/30 text-gold flex items-center justify-center mx-auto mb-3 text-xl">
+                      📧
+                    </div>
+                    <h2 className="text-lg font-bold text-text-primary">Verify your email</h2>
+                    <p className="text-xs text-silver-muted mt-1">
+                      We sent a 6-digit verification code to <span className="text-gold-bright font-semibold">{authEmail}</span>.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleVerifyOtp} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-silver-muted mb-1 text-center">Enter 6-Digit Code</label>
+                      <input
+                        type="text"
+                        required
+                        maxLength="6"
+                        value={authOtp}
+                        onChange={(e) => setAuthOtp(e.target.value)}
+                        placeholder="••••••"
+                        autoFocus
+                        className="w-full px-4 py-3 bg-charcoal border border-silver-muted/20 rounded-xl text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-gold transition-colors text-xl font-mono tracking-widest text-center"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="w-full py-3 bg-gold hover:bg-gold-bright active:bg-gold-deep text-charcoal-deep font-bold rounded-xl shadow-lg transition-all text-sm mt-2 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isSubmitting ? "Verifying..." : "Verify & Continue"}
+                    </button>
+
+                    <div className="flex items-center justify-between pt-3 border-t border-silver-muted/15 text-xs">
+                      <button
+                        type="button"
+                        onClick={handleResendOtp}
+                        className="text-gold hover:underline font-medium"
+                      >
+                        Resend OTP
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsVerifyingOtp(false);
+                          setAuthOtp("");
+                          setAuthError("");
+                          setAuthNotice("");
+                        }}
+                        className="text-silver-muted hover:text-text-primary transition-colors"
+                      >
+                        ← Change Email / Back
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              ) : (
+                <div>
+                  {/* Auth Mode Tabs: strictly LOGIN | REGISTER */}
+                  <div className="flex bg-charcoal rounded-xl p-1 mb-6 border border-silver-muted/15">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("login");
+                        setAuthError("");
+                        setAuthNotice("");
+                      }}
+                      className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+                        authMode === "login"
+                          ? "bg-graphite text-gold shadow-md"
+                          : "text-text-muted hover:text-text-primary"
+                      }`}
+                    >
+                      LOGIN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthMode("register");
+                        setAuthError("");
+                        setAuthNotice("");
+                      }}
+                      className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+                        authMode === "register"
+                          ? "bg-graphite text-gold shadow-md"
+                          : "text-text-muted hover:text-text-primary"
+                      }`}
+                    >
+                      REGISTER
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleInitiateAuth} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-silver-muted mb-1">Email Address</label>
+                      <input
+                        type="email"
+                        required
+                        value={authEmail}
+                        onChange={(e) => setAuthEmail(e.target.value)}
+                        placeholder="name@company.com"
+                        className="w-full px-4 py-2.5 bg-charcoal border border-silver-muted/20 rounded-xl text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-gold transition-colors text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-silver-muted mb-1">Password</label>
+                      <input
+                        type="password"
+                        required
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        placeholder="••••••••••••"
+                        className="w-full px-4 py-2.5 bg-charcoal border border-silver-muted/20 rounded-xl text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-gold transition-colors text-sm"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="w-full py-3 bg-gold hover:bg-gold-bright active:bg-gold-deep text-charcoal-deep font-bold rounded-xl shadow-lg transition-all text-sm mt-2 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isSubmitting
+                        ? "Processing..."
+                        : authMode === "login"
+                        ? "Sign In & Send Code"
+                        : "Register & Send Code"}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              <div className="mt-6 pt-6 border-t border-silver-muted/15 text-center text-xs text-text-muted">
+                Enterprise AI RAG Email Campaign & Audience Platform
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen flex bg-charcoal-deep text-text-primary">
+          {/* Toast Notification */}
+          {toastMessage && (
+            <div className="fixed top-5 right-5 z-50 bg-graphite border border-gold/40 text-gold-bright px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-sm animate-bounce">
+              <svg className="w-5 h-5 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+              </svg>
+              <span>{toastMessage}</span>
+            </div>
+          )}
+
+          {/* Left Sidebar */}
+          <aside className="w-64 bg-charcoal border-r border-silver-muted/15 flex flex-col shrink-0">
+            {/* Logo */}
+            <div className="p-5 border-b border-silver-muted/15 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-gold flex items-center justify-center text-charcoal-deep font-black text-lg shadow-md">
+                ✉️
+              </div>
+              <div>
+                <h2 className="font-bold text-sm text-text-primary tracking-tight">RAG Campaigner</h2>
+                <p className="text-[11px] text-text-muted">AI Cold Outreach Studio</p>
+              </div>
+            </div>
+
+            {/* Knowledge Source Bot Switcher */}
+            <div className="p-4 border-b border-silver-muted/15 bg-graphite/40">
+              <label className="block text-[10px] font-bold text-silver-muted uppercase tracking-wider mb-1.5">
+                Website Knowledge Source
+              </label>
+              {bots.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowCreateBotModal(true)}
+                  className="w-full py-2 bg-charcoal border border-dashed border-gold/40 text-gold-bright rounded-xl text-xs font-semibold hover:border-gold transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <span>+ Add Website Source</span>
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <select
+                    value={activeBot ? activeBot.id : ""}
+                    onChange={(e) => {
+                      const selected = bots.find((b) => b.id === e.target.value);
+                      setActiveBot(selected);
+                    }}
+                    className="flex-1 bg-charcoal border border-silver-muted/20 rounded-xl px-2.5 py-1.5 text-xs text-text-primary font-medium focus:outline-none focus:border-gold transition-colors truncate"
+                  >
+                    {bots.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.status})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateBotModal(true)}
+                    title="Add new website source"
+                    className="p-1.5 bg-charcoal border border-silver-muted/20 rounded-xl text-gold-bright hover:border-gold transition-colors text-xs font-bold"
+                  >
+                    +
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Prioritized Campaign Navigation */}
+            <nav className="p-3 space-y-1 flex-1 overflow-y-auto">
+              <div className="px-3 pt-2 pb-1 text-[10px] font-bold text-silver-muted uppercase tracking-wider">
+                Outreach Engine
+              </div>
+              <button
+                type="button"
+                onClick={() => setCurrentView("create_campaign")}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                  currentView === "create_campaign"
+                    ? "bg-graphite text-gold border border-gold/30 shadow-md"
+                    : "text-silver hover:bg-graphite/40 hover:text-text-primary"
+                }`}
+              >
+                <span>🚀</span>
+                <span>Create Campaign</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCurrentView("campaigns")}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                  currentView === "campaigns"
+                    ? "bg-graphite text-gold border border-gold/30 shadow-md"
+                    : "text-silver hover:bg-graphite/40 hover:text-text-primary"
+                }`}
+              >
+                <span>📋</span>
+                <span>Campaign History</span>
+                <span className="ml-auto px-1.5 py-0.5 rounded-md text-[10px] bg-charcoal text-silver-muted font-bold">
+                  {campaigns.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCurrentView("contacts")}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                  currentView === "contacts"
+                    ? "bg-graphite text-gold border border-gold/30 shadow-md"
+                    : "text-silver hover:bg-graphite/40 hover:text-text-primary"
+                }`}
+              >
+                <span>👥</span>
+                <span>Contacts & Leads</span>
+                <span className="ml-auto px-1.5 py-0.5 rounded-md text-[10px] bg-charcoal text-silver-muted font-bold">
+                  {contacts.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCurrentView("crawl")}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                  currentView === "crawl"
+                    ? "bg-graphite text-gold border border-gold/30 shadow-md"
+                    : "text-silver hover:bg-graphite/40 hover:text-text-primary"
+                }`}
+              >
+                <span>🌐</span>
+                <span>Website Knowledge</span>
+              </button>
+            </nav>
+
+            {/* User footer */}
+            <div className="p-4 border-t border-silver-muted/15 bg-graphite/30 flex items-center justify-between">
+              <div className="overflow-hidden">
+                <p className="text-xs font-bold text-text-primary truncate">{currentUser.email}</p>
+                <p className="text-[10px] text-text-muted">User ID: {currentUser.id.slice(0, 8)}...</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                title="Log Out"
+                className="p-1.5 hover:bg-charcoal text-silver-muted hover:text-rose-400 rounded-lg transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+              </button>
+            </div>
+          </aside>
+
+          {/* Main Workspace Area */}
+          <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+            {currentView === "create_campaign" && (
+              <GuidedCampaignWorkflow
+                token={token}
+                bots={bots}
+                activeBot={activeBot}
+                setActiveBot={setActiveBot}
+                contacts={contacts}
+                reloadContacts={loadContacts}
+                reloadBots={loadBots}
+                reloadCampaigns={loadCampaigns}
+                showToast={showToast}
+                onGoToHistory={() => setCurrentView("campaigns")}
+              />
+            )}
+
+            {currentView === "campaigns" && (
+              <CampaignsView
+                token={token}
+                bots={bots}
+                contacts={contacts}
+                campaigns={campaigns}
+                reloadCampaigns={loadCampaigns}
+                showToast={showToast}
+              />
+            )}
+
+            {currentView === "contacts" && (
+              <ContactsView
+                token={token}
+                contacts={contacts}
+                reloadContacts={loadContacts}
+                showToast={showToast}
+                onSelectContactForGenerator={() => setCurrentView("create_campaign")}
+              />
+            )}
+
+            {currentView === "email_generator" && (
+              <EmailGeneratorView
+                token={token}
+                bots={bots}
+                activeBot={activeBot}
+                contacts={contacts}
+                showToast={showToast}
+              />
+            )}
+
+            {currentView === "crawl" && (
+              <CrawlKnowledgeView
+                token={token}
+                bot={activeBot}
+                onBotUpdated={loadBots}
+                showToast={showToast}
+              />
+            )}
+
+            {currentView === "legacy_bots" && (
+              <BotsOverviewView
+                token={token}
+                bots={bots}
+                activeBot={activeBot}
+                onSelectBot={setActiveBot}
+                onNewBot={() => setShowCreateBotModal(true)}
+                onGoToCrawl={() => setCurrentView("crawl")}
+              />
+            )}
+
+            {currentView === "branding" && (
+              <BrandingCustomizerView
+                token={token}
+                bot={activeBot}
+                showToast={showToast}
+              />
+            )}
+
+            {currentView === "embed" && (
+              <EmbedCodeView bot={activeBot} showToast={showToast} />
+            )}
+
+            {currentView === "conversations" && (
+              <ConversationsView token={token} bot={activeBot} />
+            )}
+          </main>
+
+          {/* Create Knowledge Bot Modal */}
+          {showCreateBotModal && (
+            <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-graphite border border-silver-muted/20 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+                <h3 className="text-base font-bold text-text-primary mb-1">Add Website Knowledge Source</h3>
+                <p className="text-xs text-text-muted mb-4">
+                  Provide a website URL. Our crawler extracts facts, builds embeddings, and indexes knowledge for personalized email generation.
+                </p>
+                <form onSubmit={handleCreateBot} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-silver-muted mb-1">Source Name / Organization</label>
+                    <input
+                      type="text"
+                      required
+                      value={newBotName}
+                      onChange={(e) => setNewBotName(e.target.value)}
+                      placeholder="e.g. Acme Cloud or BioVance Health"
+                      className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-silver-muted mb-1">Target Website URL</label>
+                    <input
+                      type="url"
+                      required
+                      value={newBotUrl}
+                      onChange={(e) => setNewBotUrl(e.target.value)}
+                      placeholder="https://example.com"
+                      className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateBotModal(false)}
+                      className="px-4 py-2 bg-charcoal border border-silver-muted/20 text-silver hover:text-text-primary rounded-xl text-xs"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs"
+                    >
+                      Create & Start Crawling
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+// -------------------------------------------------------------
+    // GUIDED CAMPAIGN WORKFLOW (P0 End-to-End MVP Guided Flow)
+    // -------------------------------------------------------------
+    function GuidedCampaignWorkflow({
+      token,
+      bots,
+      activeBot,
+      setActiveBot,
+      contacts,
+      reloadContacts,
+      reloadBots,
+      reloadCampaigns,
+      showToast,
+      onGoToHistory,
+    }) {
+      const [currentStep, setCurrentStep] = useState(1);
+
+      // Step 1: Lead Source State
+      const [isImporting, setIsImporting] = useState(false);
+      const [importedCount, setImportedCount] = useState(0);
+      const [leadSourceSuccess, setLeadSourceSuccess] = useState(false);
+      const [leadSourceName, setLeadSourceName] = useState("");
+      const csvFileInputRef = useRef(null);
+
+      // Step 2: Website Knowledge State
+      const [websiteUrl, setWebsiteUrl] = useState("https://books.toscrape.com");
+      const [sourceName, setSourceName] = useState("Books To Scrape Store");
+      const [isAnalyzing, setIsAnalyzing] = useState(false);
+      const [analysisStage, setAnalysisStage] = useState(""); // crawling, extracting, chunking, embeddings, ready
+      const [websiteKnowledgeReady, setWebsiteKnowledgeReady] = useState(false);
+
+      // Step 3: Audience State
+      const [selectedContactIds, setSelectedContactIds] = useState([]);
+
+      // Step 4: Campaign Setup State
+      const [campaignName, setCampaignName] = useState("Literature & Academic Library Outreach");
+      const [campaignGoal, setCampaignGoal] = useState("Highlight curated corporate library collections and literary packages tailored to recipient roles");
+      const [isGenerating, setIsGenerating] = useState(false);
+
+      // Step 5 & 6: Review & Send State
+      const [activeCampaign, setActiveCampaign] = useState(null);
+      const [isSending, setIsSending] = useState(false);
+      const [sendResult, setSendResult] = useState(null);
+      const [selectedEmailIdx, setSelectedEmailIdx] = useState(0);
+      const [editedSubject, setEditedSubject] = useState("");
+      const [editedBody, setEditedBody] = useState("");
+      const [isSavingEmail, setIsSavingEmail] = useState(false);
+      const [isApplyingAll, setIsApplyingAll] = useState(false);
+      const [recipientSearch, setRecipientSearch] = useState("");
+
+      // HubSpot State
+      const [showHubSpotModal, setShowHubSpotModal] = useState(false);
+      const [hubSpotStatus, setHubSpotStatus] = useState(null);
+      const [isTestingHubSpot, setIsTestingHubSpot] = useState(false);
+      const [hubSpotOAuth, setHubSpotOAuth] = useState({ connected: false, portal_id: null });
+      const [isConnectingHubSpot, setIsConnectingHubSpot] = useState(false);
+
+      const checkHubSpotOAuthStatus = async () => {
+        if (!token) return;
+        try {
+          const res = await fetch(`${API_BASE}/api/auth/hubspot/status`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const data = await safeJson(res);
+            setHubSpotOAuth(data);
+          }
+        } catch (err) {
+          console.error("HubSpot status error:", err);
+        }
+      };
+
+      useEffect(() => {
+        checkHubSpotOAuthStatus();
+      }, [token]);
+
+      useEffect(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get("hubspot") === "connected") {
+          showToast("✓ HubSpot connected successfully via OAuth 2.0!");
+          window.history.replaceState({}, document.title, window.location.pathname);
+          checkHubSpotOAuthStatus();
+          handleHubSpotConnect();
+        } else if (urlParams.get("hubspot_error")) {
+          alert(`HubSpot Connection Error: ${decodeURIComponent(urlParams.get("hubspot_error"))}`);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }, [token]);
+
+      const handleConnectHubSpotOAuth = async () => {
+        setIsConnectingHubSpot(true);
+        try {
+          const res = await fetch(`${API_BASE}/api/auth/hubspot/authorize`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const data = await safeJson(res);
+          if (data.url) {
+            window.location.href = data.url;
+          } else {
+            throw new Error(data.detail || "Could not generate authorization link");
+          }
+        } catch (err) {
+          alert(err.message);
+          setIsConnectingHubSpot(false);
+        }
+      };
+
+      const handleDisconnectHubSpot = async () => {
+        if (!confirm("Are you sure you want to disconnect your HubSpot account?")) return;
+        try {
+          const res = await fetch(`${API_BASE}/api/auth/hubspot/disconnect`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            setHubSpotOAuth({ connected: false, portal_id: null });
+            showToast("HubSpot disconnected.");
+            checkHubSpotOAuthStatus();
+          }
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      // Auto-select initial contacts if contacts loaded
+      useEffect(() => {
+        if (contacts.length > 0 && selectedContactIds.length === 0) {
+          setSelectedContactIds(contacts.map((c) => c.id));
+        }
+      }, [contacts]);
+
+      // Check if existing bot is already READY
+      useEffect(() => {
+        if (activeBot && activeBot.status === "READY") {
+          setWebsiteKnowledgeReady(true);
+        }
+      }, [activeBot]);
+
+      // STEP 1 HANDLERS
+      const handleTestHubSpotConnection = async () => {
+        setIsTestingHubSpot(true);
+        try {
+          const res = await fetch(`${API_BASE}/api/contacts/hubspot/test-connection`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const data = await safeJson(res);
+          setHubSpotStatus(data);
+        } catch (err) {
+          setHubSpotStatus({
+            success: false,
+            configured: false,
+            message: `Connection test error: ${err.message}`,
+            contact_count: 0,
+          });
+        } finally {
+          setIsTestingHubSpot(false);
+        }
+      };
+
+      const handleHubSpotConnect = async () => {
+        setIsImporting(true);
+        try {
+          const res = await fetch(`${API_BASE}/api/contacts/import-hubspot`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ limit: 100, use_demo_fallback: true }),
+          });
+          const data = await safeJson(res);
+          if (!res.ok) throw new Error(data.detail || "HubSpot connection failed");
+          setImportedCount(data.imported);
+          setLeadSourceSuccess(true);
+          const srcLabel = data.source === "hubspot_oauth"
+            ? `HubSpot CRM (Portal #${hubSpotOAuth.portal_id || "Connected"})`
+            : data.source === "hubspot_crm"
+            ? "HubSpot CRM (Server Live Sync)"
+            : "HubSpot Demo Connection";
+          setLeadSourceName(srcLabel);
+          reloadContacts();
+          setShowHubSpotModal(false);
+          showToast(`✓ Your leads are ready: ${data.imported} contacts imported via ${srcLabel}`);
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          setIsImporting(false);
+        }
+      };
+
+      const handleCsvUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setIsImporting(true);
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+          const res = await fetch(`${API_BASE}/api/contacts/import-csv`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "CSV import failed");
+          setImportedCount(data.imported);
+          setLeadSourceSuccess(true);
+          setLeadSourceName(`CSV Upload (${file.name})`);
+          reloadContacts();
+          showToast(`✓ Your leads are ready: ${data.imported} contacts imported`);
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          setIsImporting(false);
+          if (csvFileInputRef.current) csvFileInputRef.current.value = "";
+        }
+      };
+
+      // STEP 2 HANDLERS: Real Crawler & Indexing Pipeline
+      const handleAnalyzeWebsite = async () => {
+        if (!websiteUrl.trim()) {
+          alert("Please enter a valid website URL");
+          return;
+        }
+        setIsAnalyzing(true);
+        setWebsiteKnowledgeReady(false);
+        setAnalysisStage("crawling");
+
+        try {
+          // 1. Create bot
+          const botRes = await fetch(`${API_BASE}/api/bots`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              name: sourceName.trim() || "Website Knowledge Source",
+              website_url: websiteUrl.trim(),
+            }),
+          });
+          const newBot = await botRes.json();
+          if (!botRes.ok) throw new Error(newBot.detail || "Failed to register website");
+          setActiveBot(newBot);
+
+          // 2. Trigger real crawler pipeline
+          await fetch(`${API_BASE}/api/bots/${newBot.id}/crawl`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ max_pages: 5 }),
+          });
+
+          // 3. Poll bot status until READY
+          let attempts = 0;
+          const pollInterval = setInterval(async () => {
+            attempts++;
+            try {
+              const checkRes = await fetch(`${API_BASE}/api/bots/${newBot.id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              const updated = await checkRes.json();
+              if (updated.status === "CRAWLING") {
+                setAnalysisStage("extracting");
+              } else if (updated.status === "PROCESSING") {
+                setAnalysisStage("embeddings");
+              } else if (updated.status === "READY") {
+                clearInterval(pollInterval);
+                setAnalysisStage("ready");
+                setWebsiteKnowledgeReady(true);
+                setIsAnalyzing(false);
+                setActiveBot(updated);
+                reloadBots();
+                showToast("✓ Your website knowledge is ready.");
+              } else if (updated.status === "FAILED" || attempts > 60) {
+                clearInterval(pollInterval);
+                setIsAnalyzing(false);
+                alert("Website analysis timed out or failed. Please verify the URL.");
+              }
+            } catch (pollErr) {
+              console.error("Poll error:", pollErr);
+            }
+          }, 2500);
+        } catch (err) {
+          setIsAnalyzing(false);
+          alert(err.message);
+        }
+      };
+
+      // STEP 3 HANDLERS: Audience Selection
+      const handleToggleAllContacts = () => {
+        if (selectedContactIds.length === contacts.length) {
+          setSelectedContactIds([]);
+        } else {
+          setSelectedContactIds(contacts.map((c) => c.id));
+        }
+      };
+
+      const handleToggleContact = (id) => {
+        setSelectedContactIds((prev) =>
+          prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+        );
+      };
+
+      // STEP 4 HANDLERS: Real RAG Email Generation
+      const handleGenerateEmails = async () => {
+        if (!activeBot || activeBot.status !== "READY") {
+          alert("Website knowledge is not ready yet. Please complete Step 2.");
+          return;
+        }
+        if (selectedContactIds.length === 0) {
+          alert("Please select at least one contact in Step 3.");
+          return;
+        }
+        setIsGenerating(true);
+        try {
+          // 1. Create campaign
+          const campRes = await fetch(`${API_BASE}/api/campaigns`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              name: campaignName.trim() || "Targeted Email Campaign",
+              bot_id: activeBot.id,
+              campaign_goal: campaignGoal.trim(),
+              contact_ids: selectedContactIds,
+            }),
+          });
+          const campaign = await safeJson(campRes);
+          if (!campRes.ok) throw new Error(campaign.detail || "Failed to create campaign");
+
+          // 2. Generate drafts via RAG
+          const genRes = await fetch(`${API_BASE}/api/campaigns/${campaign.id}/generate`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ campaign_goal: campaignGoal.trim() }),
+          });
+          const detail = await safeJson(genRes);
+          if (!genRes.ok) throw new Error(detail.detail || "Email generation failed");
+
+
+          setActiveCampaign(detail);
+          reloadCampaigns();
+          setCurrentStep(5); // Advance to Review
+          showToast(`Generated ${detail.emails ? detail.emails.length : 0} personalized email drafts!`);
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          setIsGenerating(false);
+        }
+      };
+
+      // STEP 6 HANDLERS: Mock Send Campaign
+      const handleApproveAndSend = async () => {
+        if (!activeCampaign) return;
+        setIsSending(true);
+        try {
+          const sendRes = await fetch(`${API_BASE}/api/campaigns/${activeCampaign.id}/send`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const result = await sendRes.json();
+          if (!sendRes.ok) throw new Error(result.detail || "Send failed");
+
+          setSendResult(result);
+          setCurrentStep(7); // Advance to Result
+          reloadCampaigns();
+          showToast(`Campaign completed: ${result.emails_sent} emails dispatched`);
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          setIsSending(false);
+        }
+      };
+
+      // Synchronize active draft text when selected contact changes
+      useEffect(() => {
+        if (activeCampaign && activeCampaign.emails && activeCampaign.emails.length > 0) {
+          const currentEmail = activeCampaign.emails[selectedEmailIdx] || activeCampaign.emails[0];
+          setEditedSubject(currentEmail.subject || "");
+          setEditedBody(currentEmail.body || "");
+        }
+      }, [activeCampaign, selectedEmailIdx]);
+
+      // Save changes for currently selected email
+      const handleSaveCurrentEmail = async () => {
+        if (!activeCampaign || !activeCampaign.emails) return;
+        const currentEmail = activeCampaign.emails[selectedEmailIdx] || activeCampaign.emails[0];
+        if (!currentEmail) return;
+
+        setIsSavingEmail(true);
+        try {
+          const res = await fetch(`${API_BASE}/api/campaigns/${activeCampaign.id}/emails/${currentEmail.id}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              subject: editedSubject.trim(),
+              body: editedBody.trim(),
+            }),
+          });
+          const updated = await safeJson(res);
+          if (!res.ok) throw new Error(updated.detail || "Failed to save email draft");
+          setActiveCampaign(updated);
+          reloadCampaigns();
+          showToast(`✓ Saved email for ${currentEmail.contact_name || currentEmail.contact_email}`);
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          setIsSavingEmail(false);
+        }
+      };
+
+      // Apply changes across all emails in this campaign
+      const handleApplyChangesToAll = async () => {
+        if (!activeCampaign || !activeCampaign.emails) return;
+        const currentEmail = activeCampaign.emails[selectedEmailIdx] || activeCampaign.emails[0];
+        if (!currentEmail) return;
+
+        if (!confirm(`Apply this updated subject and body across all ${activeCampaign.emails.length} emails? Recipient names and companies will automatically be tailored for each contact.`)) {
+          return;
+        }
+
+        setIsApplyingAll(true);
+        try {
+          const res = await fetch(`${API_BASE}/api/campaigns/${activeCampaign.id}/emails/apply-all`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              subject_template: editedSubject.trim(),
+              body_template: editedBody.trim(),
+              source_contact_id: currentEmail.contact_id,
+            }),
+          });
+          const updated = await safeJson(res);
+          if (!res.ok) throw new Error(updated.detail || "Failed to apply template across emails");
+          setActiveCampaign(updated);
+          reloadCampaigns();
+          showToast(`⚡ Successfully applied changes across all ${updated.emails.length} emails!`);
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          setIsApplyingAll(false);
+        }
+      };
+
+
+      return (
+        <div className="p-8 max-w-5xl mx-auto w-full">
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-text-primary tracking-tight">CREATE EMAIL CAMPAIGN</h1>
+            <p className="text-xs text-text-muted mt-1">
+              End-to-End Guided Workflow: Lead Source → Real Crawler → Vector Indexing → Personalized RAG Emails → Approval & Send
+            </p>
+          </div>
+
+          {/* Stepper Navigation */}
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-8">
+            {[
+              { num: 1, label: "Lead Source" },
+              { num: 2, label: "Website Knowledge" },
+              { num: 3, label: "Audience" },
+              { num: 4, label: "Campaign Pitch" },
+              { num: 5, label: "Review Drafts" },
+              { num: 7, label: "Result" },
+            ].map((st) => (
+              <button
+                key={st.num}
+                type="button"
+                onClick={() => {
+                  if (st.num <= currentStep || (st.num === 2 && contacts.length > 0) || (st.num === 3 && websiteKnowledgeReady)) {
+                    setCurrentStep(st.num);
+                  }
+                }}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  currentStep === st.num
+                    ? "bg-graphite border-gold text-gold shadow-lg"
+                    : currentStep > st.num
+                    ? "bg-charcoal border-emerald-500/40 text-emerald-400"
+                    : "bg-charcoal/40 border-silver-muted/15 text-silver-muted opacity-60"
+                }`}
+              >
+                <div className="text-[10px] uppercase font-bold tracking-wider">
+                  {currentStep > st.num ? "✓ Done" : `Step ${st.num}`}
+                </div>
+                <div className="text-xs font-semibold truncate">{st.label}</div>
+              </button>
+            ))}
+          </div>
+
+          {/* STEP 1: LEAD SOURCE */}
+          {currentStep === 1 && (
+            <div className="bg-graphite border border-silver-muted/20 rounded-2xl p-6 shadow-xl space-y-6">
+              <div>
+                <h2 className="text-lg font-bold text-text-primary">STEP 1: LEAD SOURCE</h2>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Import your target B2B leads via CSV file or connect HubSpot demo leads.
+                </p>
+              </div>
+
+              {/* Lead Source Choice Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Option A: Upload CSV */}
+                <div className="bg-charcoal border border-silver-muted/20 hover:border-gold/50 rounded-xl p-5 transition-all flex flex-col justify-between">
+                  <div>
+                    <div className="w-10 h-10 rounded-lg bg-gold/10 border border-gold/30 text-gold flex items-center justify-center text-lg mb-3">
+                      📄
+                    </div>
+                    <h3 className="text-sm font-bold text-text-primary mb-1">Upload CSV (REAL)</h3>
+                    <p className="text-xs text-silver-muted mb-4">
+                      Upload a CSV file containing columns: <code className="text-gold font-mono">name, email, company, role</code>.
+                    </p>
+                  </div>
+                  <div>
+                    <input
+                      type="file"
+                      ref={csvFileInputRef}
+                      accept=".csv"
+                      onChange={handleCsvUpload}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      disabled={isImporting}
+                      onClick={() => csvFileInputRef.current && csvFileInputRef.current.click()}
+                      className="w-full py-2.5 bg-gold hover:bg-gold-bright active:bg-gold-deep text-charcoal-deep font-bold rounded-xl text-xs shadow transition-all disabled:opacity-50"
+                    >
+                      {isImporting ? "Processing CSV..." : "Upload CSV"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Option B: Connect HubSpot */}
+                <div className="bg-charcoal border border-silver-muted/20 hover:border-orange-500/50 rounded-xl p-5 transition-all flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="w-10 h-10 rounded-lg bg-orange-500/10 border border-orange-500/30 text-orange-400 flex items-center justify-center text-lg">
+                        🟠
+                      </div>
+                      {hubSpotOAuth.connected ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                          OAuth Connected
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-orange-950/60 border border-orange-500/30 text-orange-300 font-bold uppercase tracking-wider">
+                          OAuth 2.0 Ready
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-sm font-bold text-text-primary mb-1">
+                      {hubSpotOAuth.connected ? `HubSpot Portal #${hubSpotOAuth.portal_id || "Active"}` : "Connect HubSpot CRM"}
+                    </h3>
+                    <p className="text-xs text-silver-muted mb-3">
+                      {hubSpotOAuth.connected
+                        ? "Authenticated via official OAuth 2.0 with automatic token refresh."
+                        : "1-click authorize your HubSpot account to sync live leads, or sync via server token."}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    {hubSpotOAuth.connected ? (
+                      <>
+                        <button
+                          type="button"
+                          disabled={isImporting}
+                          onClick={handleHubSpotConnect}
+                          className="w-full py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 active:from-orange-700 active:to-amber-700 text-white font-bold rounded-xl text-xs shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          <span>{isImporting ? "Syncing..." : "⚡ Sync Portal Leads"}</span>
+                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowHubSpotModal(true);
+                              handleTestHubSpotConnection();
+                            }}
+                            className="flex-1 py-1.5 bg-charcoal-deep hover:bg-graphite border border-silver-muted/20 text-silver-muted hover:text-text-primary text-[11px] font-semibold rounded-xl transition-all"
+                          >
+                            ⚙️ Details
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleDisconnectHubSpot}
+                            className="py-1.5 px-3 bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-300 text-[11px] font-semibold rounded-xl transition-all"
+                          >
+                            Disconnect
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          disabled={isConnectingHubSpot}
+                          onClick={handleConnectHubSpotOAuth}
+                          className="w-full py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-charcoal-deep font-bold rounded-xl text-xs shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          <span>{isConnectingHubSpot ? "Opening HubSpot..." : "🟠 Connect with HubSpot"}</span>
+                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={isImporting}
+                            onClick={handleHubSpotConnect}
+                            className="flex-1 py-1.5 bg-charcoal-deep hover:bg-graphite border border-silver-muted/20 text-silver-muted hover:text-text-primary text-[11px] font-semibold rounded-xl transition-all"
+                          >
+                            {isImporting ? "Syncing..." : "⚡ Fast Sync"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowHubSpotModal(true);
+                              handleTestHubSpotConnection();
+                            }}
+                            className="py-1.5 px-3 bg-charcoal-deep hover:bg-graphite border border-silver-muted/20 text-silver-muted hover:text-text-primary text-[11px] font-semibold rounded-xl transition-all"
+                          >
+                            ⚙️
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Status / Success Banner */}
+              {(leadSourceSuccess || contacts.length > 0) && (
+                <div className="p-4 bg-emerald-950/40 border border-emerald-500/40 rounded-xl">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm mb-2">
+                    <span>✓</span>
+                    <span>Your leads are ready</span>
+                    <span className="text-xs font-normal text-emerald-300">
+                      ({contacts.length} contacts imported{leadSourceName ? ` via ${leadSourceName}` : ""})
+                    </span>
+                  </div>
+
+                  {/* Preview Contacts */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3 max-h-48 overflow-y-auto pr-1">
+                    {contacts.slice(0, 4).map((c) => (
+                      <div key={c.id} className="p-2.5 bg-charcoal/80 border border-silver-muted/15 rounded-lg text-xs">
+                        <div className="font-bold text-text-primary">{c.name}</div>
+                        <div className="text-silver-muted font-mono text-[11px] truncate">{c.email}</div>
+                        <div className="text-gold-bright text-[11px] mt-0.5">{c.role} at {c.company}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep(2)}
+                      className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-charcoal-deep font-bold rounded-xl text-xs shadow-lg transition-all"
+                    >
+                      Continue to Step 2: Website Knowledge →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* STEP 2: WEBSITE KNOWLEDGE */}
+          {currentStep === 2 && (
+            <div className="bg-graphite border border-silver-muted/20 rounded-2xl p-6 shadow-xl space-y-6">
+              <div>
+                <h2 className="text-lg font-bold text-text-primary">STEP 2: WEBSITE KNOWLEDGE</h2>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Enter target website URL. The crawler will perform page discovery, content extraction, chunking, and pgvector indexing.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-silver-muted mb-1">Knowledge Source Name</label>
+                  <input
+                    type="text"
+                    value={sourceName}
+                    onChange={(e) => setSourceName(e.target.value)}
+                    placeholder="e.g. Books To Scrape Store"
+                    className="w-full px-4 py-2.5 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-silver-muted mb-1">Target Website URL (Publicly Accessible)</label>
+                  <input
+                    type="url"
+                    value={websiteUrl}
+                    onChange={(e) => setWebsiteUrl(e.target.value)}
+                    placeholder="https://books.toscrape.com"
+                    className="w-full px-4 py-2.5 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold font-mono"
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    disabled={isAnalyzing}
+                    onClick={handleAnalyzeWebsite}
+                    className="px-6 py-2.5 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs shadow transition-all disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {isAnalyzing ? "Analyzing Website..." : "Analyze Website"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Live Crawler / Indexing Progress */}
+              {isAnalyzing && (
+                <div className="p-4 bg-charcoal border border-gold/30 rounded-xl space-y-3">
+                  <div className="text-xs font-bold text-gold-bright flex items-center gap-2">
+                    <span className="animate-spin">⚙️</span>
+                    <span>Analyzing website...</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className={analysisStage ? "text-emerald-400 font-semibold" : "text-silver-muted"}>
+                      ✓ Crawling website pages
+                    </div>
+                    <div className={["extracting", "embeddings", "ready"].includes(analysisStage) ? "text-emerald-400 font-semibold" : "text-silver-muted"}>
+                      ✓ Extracting clean canonical content
+                    </div>
+                    <div className={["embeddings", "ready"].includes(analysisStage) ? "text-emerald-400 font-semibold" : "text-silver-muted"}>
+                      ✓ Semantic Markdown chunking
+                    </div>
+                    <div className={["embeddings", "ready"].includes(analysisStage) ? "text-emerald-400 font-semibold" : "text-silver-muted"}>
+                      ✓ Generating 384-dimensional FastEmbed vectors
+                    </div>
+                    <div className={analysisStage === "ready" ? "text-emerald-400 font-semibold" : "text-silver-muted"}>
+                      ✓ Indexing knowledge into PostgreSQL pgvector
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Completion Banner */}
+              {websiteKnowledgeReady && (
+                <div className="p-4 bg-emerald-950/40 border border-emerald-500/40 rounded-xl space-y-3">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                    <span>✓</span>
+                    <span>Your website knowledge is ready.</span>
+                  </div>
+                  <p className="text-xs text-silver-muted">
+                    Source: <strong className="text-text-primary">{activeBot ? activeBot.name : sourceName}</strong> ({activeBot ? activeBot.website_url : websiteUrl}) — Status: <span className="text-emerald-400 font-bold">READY</span>
+                  </p>
+                  <div className="flex justify-between items-center pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep(1)}
+                      className="text-xs text-silver-muted hover:text-text-primary"
+                    >
+                      ← Back to Leads
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentStep(3)}
+                      className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-charcoal-deep font-bold rounded-xl text-xs shadow-lg transition-all"
+                    >
+                      Continue to Step 3: Audience →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* STEP 3: AUDIENCE */}
+          {currentStep === 3 && (
+            <div className="bg-graphite border border-silver-muted/20 rounded-2xl p-6 shadow-xl space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-lg font-bold text-text-primary">STEP 3: AUDIENCE</h2>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    Select target contacts. Each contact receives an individually personalized RAG email.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleToggleAllContacts}
+                    className="px-3 py-1.5 bg-charcoal border border-silver-muted/20 hover:border-gold text-xs font-bold text-gold-bright rounded-lg transition-all"
+                  >
+                    {selectedContactIds.length === contacts.length ? "Deselect All" : "Select All"}
+                  </button>
+                  <span className="text-xs font-semibold px-2.5 py-1 bg-charcoal rounded-lg border border-silver-muted/15 text-silver-muted">
+                    {selectedContactIds.length} contacts selected
+                  </span>
+                </div>
+              </div>
+
+              {/* Contacts Table */}
+              <div className="border border-silver-muted/20 rounded-xl overflow-hidden bg-charcoal/60 max-h-96 overflow-y-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-charcoal text-silver-muted uppercase text-[10px] tracking-wider border-b border-silver-muted/20 sticky top-0">
+                    <tr>
+                      <th className="p-3 w-10"></th>
+                      <th className="p-3">Name</th>
+                      <th className="p-3">Email</th>
+                      <th className="p-3">Company</th>
+                      <th className="p-3">Role</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-silver-muted/10">
+                    {contacts.map((c) => {
+                      const isSelected = selectedContactIds.includes(c.id);
+                      return (
+                        <tr
+                          key={c.id}
+                          onClick={() => handleToggleContact(c.id)}
+                          className={`cursor-pointer transition-colors ${
+                            isSelected ? "bg-gold/5 hover:bg-gold/10" : "hover:bg-charcoal"
+                          }`}
+                        >
+                          <td className="p-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleContact(c.id)}
+                              className="rounded border-silver-muted/40 text-gold focus:ring-0"
+                            />
+                          </td>
+                          <td className="p-3 font-bold text-text-primary">{c.name}</td>
+                          <td className="p-3 font-mono text-silver-muted">{c.email}</td>
+                          <td className="p-3 text-silver">{c.company || "—"}</td>
+                          <td className="p-3 text-gold-bright font-medium">{c.role || "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-between items-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep(2)}
+                  className="text-xs text-silver-muted hover:text-text-primary"
+                >
+                  ← Back to Knowledge
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedContactIds.length === 0}
+                  onClick={() => setCurrentStep(4)}
+                  className="px-5 py-2.5 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs shadow-lg transition-all disabled:opacity-40"
+                >
+                  Continue to Step 4: Campaign Setup →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 4: CAMPAIGN SETUP */}
+          {currentStep === 4 && (
+            <div className="bg-graphite border border-silver-muted/20 rounded-2xl p-6 shadow-xl space-y-6">
+              <div>
+                <h2 className="text-lg font-bold text-text-primary">STEP 4: CAMPAIGN</h2>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Set campaign name and value proposition. The RAG generator queries pgvector to customize drafts per contact.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-silver-muted mb-1">Campaign Name</label>
+                  <input
+                    type="text"
+                    value={campaignName}
+                    onChange={(e) => setCampaignName(e.target.value)}
+                    placeholder="e.g. Q4 Executive Library Outreach"
+                    className="w-full px-4 py-2.5 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-silver-muted mb-1">Campaign Objective / Pitch</label>
+                  <textarea
+                    rows={4}
+                    value={campaignGoal}
+                    onChange={(e) => setCampaignGoal(e.target.value)}
+                    placeholder="Describe your offer angle, e.g. Introduce corporate library packages and highlight top literary recommendations based on their role"
+                    className="w-full px-4 py-2.5 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                  />
+                </div>
+
+                <div className="p-3 bg-charcoal/80 border border-silver-muted/15 rounded-xl text-xs text-silver-muted space-y-1">
+                  <div>🎯 Audience: <strong className="text-text-primary">{selectedContactIds.length}</strong> selected contacts</div>
+                  <div>🌐 Knowledge Source: <strong className="text-gold-bright">{activeBot ? activeBot.name : "Active Bot"}</strong></div>
+                  <div>🛡️ Security: Anti-prompt-injection sandbox (<code className="text-gold font-mono">&lt;untrusted_website_reference_data&gt;</code>)</div>
+                </div>
+
+                <div className="flex justify-between items-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(3)}
+                    className="text-xs text-silver-muted hover:text-text-primary"
+                  >
+                    ← Back to Audience
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isGenerating}
+                    onClick={handleGenerateEmails}
+                    className="px-6 py-2.5 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {isGenerating ? "Generating with RAG..." : "Generate Personalized Emails"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 5: REVIEW / PREVIEW */}
+          {currentStep === 5 && activeCampaign && (
+            <div className="bg-graphite border border-silver-muted/20 rounded-2xl p-6 shadow-xl space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-silver-muted/15">
+                <div>
+                  <h2 className="text-lg font-bold text-text-primary">STEP 5: REVIEW & PERSONALIZE</h2>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    Select any contact from the menu to inspect their email. Edit any draft or apply changes to all recipients.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs px-3 py-1 rounded-full bg-gold/10 border border-gold/30 text-gold-bright font-bold">
+                    Campaign: {activeCampaign.name}
+                  </span>
+                  <span className="text-xs px-3 py-1 rounded-full bg-charcoal border border-silver-muted/20 text-silver-bright font-bold">
+                    {(activeCampaign.emails || []).length} Recipients
+                  </span>
+                </div>
+              </div>
+
+              {/* 2-Column Workspace: Contact Menu / Dropdown + Single Focused Email Preview */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left: Contact Selector Menu */}
+                <div className="lg:col-span-4 bg-charcoal border border-silver-muted/20 rounded-2xl p-4 flex flex-col h-[520px]">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                      Contacts ({activeCampaign.emails?.length || 0})
+                    </span>
+                    <span className="text-[10px] text-gold-bright font-semibold">
+                      Click to inspect
+                    </span>
+                  </div>
+
+                  {/* Search input for contacts */}
+                  <div className="mb-3">
+                    <input
+                      type="text"
+                      placeholder="Filter contacts..."
+                      value={recipientSearch}
+                      onChange={(e) => setRecipientSearch(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-charcoal-deep border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                    />
+                  </div>
+
+                  {/* Contact List */}
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                    {(activeCampaign.emails || [])
+                      .map((em, originalIdx) => ({ em, originalIdx }))
+                      .filter(({ em }) => {
+                        if (!recipientSearch.trim()) return true;
+                        const q = recipientSearch.toLowerCase();
+                        return (
+                          (em.contact_name || "").toLowerCase().includes(q) ||
+                          (em.contact_email || "").toLowerCase().includes(q) ||
+                          (em.contact_company || "").toLowerCase().includes(q)
+                        );
+                      })
+                      .map(({ em, originalIdx }) => {
+                        const isSelected = selectedEmailIdx === originalIdx;
+                        return (
+                          <div
+                            key={em.id}
+                            onClick={() => setSelectedEmailIdx(originalIdx)}
+                            className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                              isSelected
+                                ? "bg-graphite border-gold shadow-lg shadow-gold/10 text-gold-bright"
+                                : "bg-charcoal-deep/60 border-silver-muted/15 hover:border-silver-muted/30 text-silver-bright hover:bg-graphite/40"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-bold text-xs truncate">
+                                {em.contact_name || "Unknown"}
+                              </span>
+                              {isSelected && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gold/20 text-gold-bright font-bold">
+                                  Previewing
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-text-muted truncate">
+                              {em.contact_company ? `${em.contact_company} • ` : ""}{em.contact_role || em.contact_email}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+
+                {/* Right: Single Focused Email Preview & Editor */}
+                <div className="lg:col-span-8 bg-charcoal border border-silver-muted/20 rounded-2xl p-6 shadow-xl flex flex-col h-[520px]">
+                  {activeCampaign.emails && activeCampaign.emails.length > 0 ? (() => {
+                    const currentEmail = activeCampaign.emails[selectedEmailIdx] || activeCampaign.emails[0];
+                    const hasChanges =
+                      editedSubject.trim() !== (currentEmail.subject || "").trim() ||
+                      editedBody.trim() !== (currentEmail.body || "").trim();
+
+                    return (
+                      <div className="flex flex-col h-full space-y-3">
+                        {/* Recipient Header Info */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-silver-muted/15">
+                          <div>
+                            <div className="text-xs text-text-muted">
+                              Recipient: <strong className="text-text-primary">{currentEmail.contact_name}</strong> &lt;{currentEmail.contact_email}&gt;
+                            </div>
+                            <div className="text-[11px] text-silver-muted">
+                              Company: <strong className="text-silver-bright">{currentEmail.contact_company || "N/A"}</strong> | Role: {currentEmail.contact_role || "N/A"}
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-charcoal-deep text-gold-bright border border-gold/30">
+                            Knowledge Grounded
+                          </span>
+                        </div>
+
+                        {/* Subject Input */}
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-silver-muted mb-1">
+                            Subject Line
+                          </label>
+                          <input
+                            type="text"
+                            value={editedSubject}
+                            onChange={(e) => setEditedSubject(e.target.value)}
+                            placeholder="Email Subject"
+                            className="w-full px-3.5 py-2 bg-charcoal-deep border border-silver-muted/20 rounded-xl text-xs font-semibold text-text-primary focus:outline-none focus:border-gold"
+                          />
+                        </div>
+
+                        {/* Email Body Editor */}
+                        <div className="flex-1 flex flex-col min-h-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-[10px] font-bold uppercase tracking-wider text-silver-muted">
+                              Email Body
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(editedBody);
+                                  showToast("Email body copied to clipboard!");
+                                }}
+                                className="text-[11px] text-gold-bright hover:underline"
+                              >
+                                Copy Body
+                              </button>
+                            </div>
+                          </div>
+                          <textarea
+                            value={editedBody}
+                            onChange={(e) => setEditedBody(e.target.value)}
+                            placeholder="Email body text..."
+                            className="w-full flex-1 p-3.5 bg-charcoal-deep border border-silver-muted/20 rounded-xl text-xs text-text-primary leading-relaxed focus:outline-none focus:border-gold resize-none font-sans overflow-y-auto"
+                          />
+                        </div>
+
+                        {/* Interactive Edit Action Bar */}
+                        <div className="p-3 bg-charcoal-deep/80 border border-silver-muted/20 rounded-xl flex flex-wrap items-center justify-between gap-3">
+                          <div className="text-[11px] text-text-muted">
+                            {hasChanges ? (
+                              <span className="text-amber-400 font-semibold flex items-center gap-1">
+                                <span>✏️</span> Unsaved edits in this draft
+                              </span>
+                            ) : (
+                              <span>Draft matches saved state</span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={isSavingEmail || !hasChanges}
+                              onClick={handleSaveCurrentEmail}
+                              className="px-3.5 py-1.5 bg-charcoal hover:bg-graphite text-silver-bright border border-silver-muted/30 font-semibold rounded-lg text-xs transition-all disabled:opacity-40"
+                            >
+                              {isSavingEmail ? "Saving..." : "💾 Save This Email"}
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isApplyingAll}
+                              onClick={handleApplyChangesToAll}
+                              title="Propagate your edits to all recipients with automatic name & company personalization"
+                              className="px-4 py-1.5 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-lg text-xs shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                            >
+                              <span>{isApplyingAll ? "Applying..." : "⚡ Apply Changes to All Emails"}</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })() : (
+                    <div className="flex-1 flex items-center justify-center text-xs text-text-muted italic">
+                      No email drafts to display.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Bottom Approval & Send Bar */}
+              <div className="p-4 bg-charcoal-deep border border-gold/40 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(4)}
+                    className="text-xs text-silver-muted hover:text-text-primary"
+                  >
+                    ← Back to Pitch
+                  </button>
+                  <span className="text-xs text-text-muted">
+                    Ready to send to <strong className="text-text-primary">{activeCampaign.emails ? activeCampaign.emails.length : 0}</strong> contacts.
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isSending || !activeCampaign.emails || activeCampaign.emails.length === 0}
+                  onClick={handleApproveAndSend}
+                  className="px-6 py-2.5 bg-gold hover:bg-gold-bright active:bg-gold-deep text-charcoal-deep font-bold rounded-xl text-xs shadow-xl transition-all disabled:opacity-50 whitespace-nowrap"
+                >
+                  {isSending ? "Dispatching..." : "Approve & Send Campaign →"}
+                </button>
+              </div>
+            </div>
+          )}
+
+
+          {/* STEP 7: RESULT */}
+          {currentStep === 7 && sendResult && (
+            <div className="bg-graphite border border-emerald-500/40 rounded-2xl p-8 shadow-2xl text-center space-y-6">
+              <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center text-3xl mx-auto">
+                🎉
+              </div>
+
+              <div>
+                <h2 className="text-2xl font-bold text-text-primary">Campaign Completed</h2>
+                <p className="text-sm text-emerald-400 font-semibold mt-1">
+                  {sendResult.emails_sent} emails sent successfully • 0 failed
+                </p>
+                <p className="text-xs text-silver-muted mt-1">
+                  Campaign status updated to <strong className="text-emerald-300">COMPLETED</strong> in PostgreSQL.
+                </p>
+              </div>
+
+              <div className="p-4 bg-charcoal rounded-xl border border-silver-muted/15 max-w-lg mx-auto text-xs text-silver-muted space-y-1 text-left">
+                <div>📬 Provider: <strong className="text-text-primary">MockEmailSenderProvider (Simulated Dispatch)</strong></div>
+                <div>📊 Campaign ID: <span className="font-mono text-gold">{sendResult.campaign_id}</span></div>
+                <div>⏱️ Status: <span className="text-emerald-400 font-bold uppercase">{sendResult.status}</span></div>
+              </div>
+
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentStep(1);
+                    setActiveCampaign(null);
+                    setSendResult(null);
+                  }}
+                  className="px-5 py-2.5 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs shadow transition-all"
+                >
+                  + Create Another Campaign
+                </button>
+                <button
+                  type="button"
+                  onClick={onGoToHistory}
+                  className="px-5 py-2.5 bg-charcoal border border-silver-muted/30 text-text-primary hover:border-gold font-bold rounded-xl text-xs transition-all"
+                >
+                  View Campaign History
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* HubSpot Connection & Status Modal */}
+          {showHubSpotModal && (
+            <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-graphite border border-silver-muted/20 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-silver-muted/15">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-orange-500/10 border border-orange-500/30 text-orange-400 flex items-center justify-center text-sm font-bold">
+                      🟠
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-text-primary">HubSpot CRM Integration</h3>
+                      <p className="text-[10px] text-silver-muted">Official OAuth 2.0 & Private App</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowHubSpotModal(false)}
+                    className="text-silver-muted hover:text-text-primary text-xs"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* OAuth 2.0 Status Card */}
+                <div className="p-3.5 bg-charcoal border border-silver-muted/20 rounded-xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-silver-muted">User OAuth Connection:</span>
+                    {hubSpotOAuth.connected ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 font-bold flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Connected (Portal #{hubSpotOAuth.portal_id})
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-charcoal-deep border border-silver-muted/30 text-silver-muted font-bold">
+                        Not Connected
+                      </span>
+                    )}
+                  </div>
+
+                  {hubSpotOAuth.connected ? (
+                    <div className="space-y-2 pt-1 border-t border-silver-muted/10">
+                      <p className="text-[11px] text-emerald-400/90">
+                        ✓ Your HubSpot account is linked via OAuth 2.0. Access tokens refresh automatically without interruption.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleDisconnectHubSpot}
+                        className="text-[11px] text-red-400 hover:text-red-300 underline font-medium"
+                      >
+                        Disconnect HubSpot Account
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 pt-1 border-t border-silver-muted/10">
+                      <p className="text-[11px] text-text-muted">
+                        Connect your HubSpot portal with 1 click using your HubSpot Developer App:
+                      </p>
+                      <button
+                        type="button"
+                        disabled={isConnectingHubSpot}
+                        onClick={handleConnectHubSpotOAuth}
+                        className="w-full py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-charcoal-deep font-bold text-xs rounded-xl shadow transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <span>{isConnectingHubSpot ? "Opening HubSpot..." : "🟠 Connect with HubSpot (OAuth 2.0)"}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* API Diagnostics Panel */}
+                <div className="p-3 bg-charcoal-deep border border-silver-muted/15 rounded-xl space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-silver-muted">Live CRM Connectivity:</span>
+                    {isTestingHubSpot ? (
+                      <span className="text-[10px] text-amber-400 animate-pulse font-mono">Testing...</span>
+                    ) : hubSpotStatus?.success ? (
+                      <span className="text-[10px] text-emerald-400 font-bold">
+                        ✓ Active ({hubSpotStatus.contact_count || 0} leads in CRM)
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-amber-400 font-medium">
+                        {hubSpotStatus ? "Check credentials" : "Not tested yet"}
+                      </span>
+                    )}
+                  </div>
+                  {hubSpotStatus?.message && (
+                    <p className="text-[10px] text-text-muted">{hubSpotStatus.message}</p>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center justify-between gap-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={isTestingHubSpot}
+                    onClick={handleTestHubSpotConnection}
+                    className="px-3.5 py-2 bg-charcoal border border-silver-muted/20 text-silver hover:text-text-primary text-xs rounded-xl transition-all"
+                  >
+                    {isTestingHubSpot ? "Testing..." : "🔍 Test Connection"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isImporting}
+                    onClick={handleHubSpotConnect}
+                    className="px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold text-xs rounded-xl shadow-lg transition-all"
+                  >
+                    {isImporting ? "Syncing..." : "Sync & Import Leads →"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------
+    // VIEW 1: CAMPAIGNS VIEW (Create, Batch Generate, Send, Inspect)
+    // -------------------------------------------------------------
+    function CampaignsView({ token, bots, contacts, campaigns, reloadCampaigns, showToast }) {
+      const [selectedCampaign, setSelectedCampaign] = useState(null);
+      const [showCreateModal, setShowCreateModal] = useState(false);
+      const [name, setName] = useState("");
+      const [botId, setBotId] = useState(bots[0]?.id || "");
+      const [selectedContactIds, setSelectedContactIds] = useState([]);
+      const [goal, setGoal] = useState("");
+      const [isGenerating, setIsGenerating] = useState(false);
+      const [isSending, setIsSending] = useState(false);
+      const [viewEmailModal, setViewEmailModal] = useState(null);
+
+      useEffect(() => {
+        if (bots.length > 0 && !botId) {
+          setBotId(bots[0].id);
+        }
+      }, [bots]);
+
+      const handleCreateCampaign = async (e) => {
+        e.preventDefault();
+        if (!name.trim() || !botId) return;
+
+        try {
+          const res = await fetch(`${API_BASE}/api/campaigns`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              name: name.trim(),
+              bot_id: botId,
+              contact_ids: selectedContactIds,
+              campaign_goal: goal.trim() || undefined,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Failed creating campaign");
+
+          showToast(`Campaign "${name}" created with ${selectedContactIds.length} recipients!`);
+          setShowCreateModal(false);
+          setName("");
+          setSelectedContactIds([]);
+          setGoal("");
+          reloadCampaigns();
+          setSelectedCampaign(data);
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      const handleSelectCampaign = async (campSummary) => {
+        try {
+          const res = await fetch(`${API_BASE}/api/campaigns/${campSummary.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const detail = await res.json();
+          setSelectedCampaign(detail);
+        } catch (err) {
+          console.error("Error loading campaign details:", err);
+        }
+      };
+
+      const handleGenerateAll = async () => {
+        if (!selectedCampaign) return;
+        setIsGenerating(true);
+        try {
+          const res = await fetch(`${API_BASE}/api/campaigns/${selectedCampaign.id}/generate`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              campaign_goal: goal || undefined,
+            }),
+          });
+          const updated = await safeJson(res);
+          if (!res.ok) throw new Error(updated.detail || "Email generation failed");
+
+          setSelectedCampaign(updated);
+          reloadCampaigns();
+          showToast(`Generated ${updated.emails.length} personalized emails with RAG!`);
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          setIsGenerating(false);
+        }
+      };
+
+      const handleSendCampaign = async () => {
+        if (!selectedCampaign) return;
+        if (!confirm(`Are you sure you want to dispatch campaign "${selectedCampaign.name}" to ${selectedCampaign.emails.length} contacts?`)) return;
+
+        setIsSending(true);
+        try {
+          const res = await fetch(`${API_BASE}/api/campaigns/${selectedCampaign.id}/send`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          const result = await res.json();
+          if (!res.ok) throw new Error(result.detail || "Dispatch failed");
+          showToast(result.message);
+          // Refresh detail
+          handleSelectCampaign(selectedCampaign);
+          reloadCampaigns();
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          setIsSending(false);
+        }
+      };
+
+      const handleDeleteCampaign = async (cid) => {
+        if (!confirm("Are you sure you want to delete this campaign?")) return;
+        try {
+          const res = await fetch(`${API_BASE}/api/campaigns/${cid}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) throw new Error("Deletion failed");
+          showToast("Campaign deleted");
+          if (selectedCampaign?.id === cid) setSelectedCampaign(null);
+          reloadCampaigns();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      return (
+        <div className="p-8 max-w-7xl mx-auto w-full">
+          {/* Header */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <div>
+              <h1 className="text-2xl font-bold text-text-primary tracking-tight">Outreach Campaigns</h1>
+              <p className="text-xs text-text-muted mt-1">
+                Synthesize website factual knowledge into hyper-personalized emails and dispatch campaigns.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(true)}
+              className="px-4 py-2.5 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg transition-all self-start"
+            >
+              <span>+</span>
+              <span>New Campaign</span>
+            </button>
+          </div>
+
+          {/* Campaign List Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            {campaigns.map((c) => {
+              const isSelected = selectedCampaign?.id === c.id;
+              return (
+                <div
+                  key={c.id}
+                  onClick={() => handleSelectCampaign(c)}
+                  className={`p-5 rounded-2xl border transition-all cursor-pointer ${
+                    isSelected
+                      ? "bg-graphite border-gold shadow-lg shadow-gold/5"
+                      : "bg-charcoal border-silver-muted/15 hover:border-silver-muted/30 hover:bg-graphite/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-mono text-[10px] text-silver-muted uppercase tracking-wider">
+                      {c.bot_name || "Website Source"}
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        c.status === "COMPLETED"
+                          ? "bg-emerald-950/60 text-emerald-300 border border-emerald-500/30"
+                          : c.status === "READY"
+                          ? "bg-gold/20 text-gold-bright border border-gold/40"
+                          : c.status === "GENERATING" || c.status === "SENDING"
+                          ? "bg-blue-950/60 text-blue-300 border border-blue-500/30 animate-pulse"
+                          : "bg-charcoal-deep text-silver-muted border border-silver-muted/20"
+                      }`}
+                    >
+                      {c.status}
+                    </span>
+                  </div>
+                  <h3 className="font-bold text-sm text-text-primary mb-1">{c.name}</h3>
+                  <div className="flex items-center gap-4 text-xs text-text-muted mt-4 pt-3 border-t border-silver-muted/10">
+                    <div>
+                      <span className="font-semibold text-text-primary">{c.total_emails}</span> Recipients
+                    </div>
+                    <div>
+                      <span className="font-semibold text-emerald-400">{c.sent_emails}</span> Sent
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {campaigns.length === 0 && (
+              <div className="col-span-3 p-12 text-center bg-charcoal rounded-2xl border border-dashed border-silver-muted/20">
+                <p className="text-sm font-semibold text-text-primary mb-1">No campaigns created yet</p>
+                <p className="text-xs text-text-muted mb-4">Launch your first RAG email campaign in seconds.</p>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(true)}
+                  className="px-4 py-2 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs"
+                >
+                  + Create First Campaign
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Selected Campaign Details Workspace */}
+          {selectedCampaign && (
+            <div className="bg-graphite border border-silver-muted/20 rounded-2xl p-6 shadow-xl">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-6 border-b border-silver-muted/15">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-lg font-bold text-text-primary">{selectedCampaign.name}</h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-charcoal text-gold-bright border border-gold/30">
+                      {selectedCampaign.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-text-muted mt-1">
+                    Knowledge Source: <span className="text-silver-bright font-medium">{selectedCampaign.bot_name}</span> | Recipients: {selectedCampaign.total_emails} | Dispatched: {selectedCampaign.sent_emails}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isGenerating || selectedCampaign.emails.length === 0}
+                    onClick={handleGenerateAll}
+                    className="px-4 py-2 bg-charcoal hover:bg-charcoal-deep border border-gold/40 text-gold-bright font-bold rounded-xl text-xs flex items-center gap-2 transition-all disabled:opacity-50"
+                  >
+                    <span>{isGenerating ? "⏳ Generating..." : "⚡ Generate All Emails (RAG)"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSending || selectedCampaign.emails.length === 0 || selectedCampaign.status === "COMPLETED"}
+                    onClick={handleSendCampaign}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg transition-all disabled:opacity-50"
+                  >
+                    <span>{isSending ? "🚀 Dispatching..." : "🚀 Send Campaign"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCampaign(selectedCampaign.id)}
+                    className="p-2 bg-charcoal hover:bg-rose-950/40 text-silver-muted hover:text-rose-400 border border-silver-muted/20 rounded-xl text-xs transition-colors"
+                    title="Delete Campaign"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+
+              {/* Campaign Emails Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-silver-muted/15 text-silver-muted font-bold uppercase tracking-wider text-[10px]">
+                      <th className="pb-3 px-3">Recipient</th>
+                      <th className="pb-3 px-3">Company / Role</th>
+                      <th className="pb-3 px-3">Subject Line Preview</th>
+                      <th className="pb-3 px-3">Status</th>
+                      <th className="pb-3 px-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-silver-muted/10">
+                    {selectedCampaign.emails?.map((e) => (
+                      <tr key={e.id} className="hover:bg-charcoal/40 transition-colors">
+                        <td className="py-3.5 px-3">
+                          <div className="font-bold text-text-primary">{e.contact_name || "Unknown"}</div>
+                          <div className="text-[11px] text-silver-muted">{e.contact_email}</div>
+                        </td>
+                        <td className="py-3.5 px-3">
+                          <div className="text-text-primary">{e.contact_company || "—"}</div>
+                          <div className="text-[11px] text-text-muted">{e.contact_role || "—"}</div>
+                        </td>
+                        <td className="py-3.5 px-3 max-w-xs truncate">
+                          {e.subject ? (
+                            <span className="text-silver-bright font-medium">{e.subject}</span>
+                          ) : (
+                            <span className="text-text-muted italic">Draft not generated yet</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              e.status === "SENT"
+                                ? "bg-emerald-950/60 text-emerald-300 border border-emerald-500/30"
+                                : e.status === "GENERATED"
+                                ? "bg-gold/20 text-gold-bright border border-gold/40"
+                                : "bg-charcoal text-silver-muted border border-silver-muted/20"
+                            }`}
+                          >
+                            {e.status}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-3 text-right">
+                          {e.subject ? (
+                            <button
+                              type="button"
+                              onClick={() => setViewEmailModal(e)}
+                              className="px-2.5 py-1 bg-charcoal hover:bg-graphite text-gold-bright border border-gold/30 rounded-lg text-xs font-semibold"
+                            >
+                              Review Draft
+                            </button>
+                          ) : (
+                            <span className="text-text-muted text-[11px]">Pending Gen</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {selectedCampaign.emails?.length === 0 && (
+                      <tr>
+                        <td colSpan="5" className="py-8 text-center text-text-muted italic">
+                          No contacts attached to this campaign.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Create Campaign Modal */}
+          {showCreateModal && (
+            <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-graphite border border-silver-muted/20 rounded-2xl w-full max-w-lg p-6 shadow-2xl max-h-[90vh] flex flex-col">
+                <h3 className="text-base font-bold text-text-primary mb-1">Create Email Outreach Campaign</h3>
+                <p className="text-xs text-text-muted mb-4">
+                  Define your campaign, link a knowledge source, and select targeted audience contacts.
+                </p>
+
+                <form onSubmit={handleCreateCampaign} className="space-y-4 flex-1 overflow-y-auto pr-1">
+                  <div>
+                    <label className="block text-xs font-semibold text-silver-muted mb-1">Campaign Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Q4 Healthcare Automation Outreach"
+                      className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-silver-muted mb-1">Knowledge Source (Bot)</label>
+                    <select
+                      value={botId}
+                      onChange={(e) => setBotId(e.target.value)}
+                      required
+                      className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                    >
+                      {bots.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name} ({b.website_url})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-silver-muted mb-1">Campaign Goal / Pitch Angle</label>
+                    <input
+                      type="text"
+                      value={goal}
+                      onChange={(e) => setGoal(e.target.value)}
+                      placeholder="e.g. Highlight enterprise security, compliance and ROI"
+                      className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-semibold text-silver-muted">Select Target Contacts ({selectedContactIds.length} selected)</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedContactIds.length === contacts.length) setSelectedContactIds([]);
+                          else setSelectedContactIds(contacts.map((c) => c.id));
+                        }}
+                        className="text-[11px] text-gold-bright hover:underline"
+                      >
+                        {selectedContactIds.length === contacts.length ? "Deselect All" : "Select All"}
+                      </button>
+                    </div>
+
+                    <div className="max-h-48 overflow-y-auto bg-charcoal border border-silver-muted/20 rounded-xl p-2 space-y-1.5 divide-y divide-silver-muted/10">
+                      {contacts.map((c) => {
+                        const checked = selectedContactIds.includes(c.id);
+                        return (
+                          <label key={c.id} className="flex items-center gap-3 p-1.5 hover:bg-graphite/40 rounded-lg cursor-pointer text-xs">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                if (checked) setSelectedContactIds(selectedContactIds.filter((id) => id !== c.id));
+                                else setSelectedContactIds([...selectedContactIds, c.id]);
+                              }}
+                              className="rounded border-silver-muted/30 text-gold focus:ring-gold bg-graphite"
+                            />
+                            <div className="truncate">
+                              <span className="font-semibold text-text-primary">{c.name}</span>{" "}
+                              <span className="text-text-muted">({c.company || c.email})</span>
+                            </div>
+                          </label>
+                        );
+                      })}
+                      {contacts.length === 0 && (
+                        <p className="p-4 text-center text-xs text-text-muted">No contacts yet. Import mock leads from the Contacts tab.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-4 border-t border-silver-muted/15">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateModal(false)}
+                      className="px-4 py-2 bg-charcoal border border-silver-muted/20 text-silver hover:text-text-primary rounded-xl text-xs"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs"
+                    >
+                      Create Campaign
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Email Preview & Review Modal */}
+          {viewEmailModal && (
+            <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-graphite border border-silver-muted/20 rounded-2xl w-full max-w-2xl p-6 shadow-2xl flex flex-col max-h-[85vh]">
+                <div className="flex items-center justify-between pb-4 mb-4 border-b border-silver-muted/15">
+                  <div>
+                    <span className="text-[10px] font-mono text-gold-bright uppercase tracking-wider">Email Draft Review</span>
+                    <h3 className="text-base font-bold text-text-primary">To: {viewEmailModal.contact_name} &lt;{viewEmailModal.contact_email}&gt;</h3>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-charcoal text-gold-bright border border-gold/30">
+                    {viewEmailModal.status}
+                  </span>
+                </div>
+
+                <div className="space-y-4 flex-1 overflow-y-auto pr-1">
+                  <div>
+                    <label className="block text-[11px] font-bold text-silver-muted uppercase tracking-wider mb-1">Subject</label>
+                    <div className="p-3 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary font-medium">
+                      {viewEmailModal.subject}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-silver-muted uppercase tracking-wider mb-1">Email Body</label>
+                    <div className="p-4 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary leading-relaxed whitespace-pre-wrap font-sans">
+                      {viewEmailModal.body}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center pt-4 mt-4 border-t border-silver-muted/15">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`Subject: ${viewEmailModal.subject}\n\n${viewEmailModal.body}`);
+                      showToast("Subject & Body copied to clipboard!");
+                    }}
+                    className="px-3 py-1.5 bg-charcoal hover:bg-charcoal-deep border border-gold/30 text-gold-bright text-xs font-bold rounded-xl transition-all"
+                  >
+                    📋 Copy Content
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewEmailModal(null)}
+                    className="px-4 py-2 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------
+    // VIEW 2: CONTACTS VIEW (CRUD, Mock Import, CSV Upload)
+    // -------------------------------------------------------------
+    function ContactsView({ token, contacts, reloadContacts, showToast, onSelectContactForGenerator }) {
+      const [showAddModal, setShowAddModal] = useState(false);
+      const [name, setName] = useState("");
+      const [email, setEmail] = useState("");
+      const [company, setCompany] = useState("");
+      const [role, setRole] = useState("");
+      const fileInputRef = useRef(null);
+
+      const handleAddContact = async (e) => {
+        e.preventDefault();
+        try {
+          const res = await fetch(`${API_BASE}/api/contacts`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ name, email, company, role }),
+          });
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || "Failed adding contact");
+          }
+          showToast(`Contact "${name}" added successfully.`);
+          setShowAddModal(false);
+          setName("");
+          setEmail("");
+          setCompany("");
+          setRole("");
+          reloadContacts();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      const handleImportMock = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/contacts/import-mock`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Mock import failed");
+          showToast(`Imported ${data.imported} curated sample leads!`);
+          reloadContacts();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      const handleCsvUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+          const res = await fetch(`${API_BASE}/api/contacts/import-csv`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "CSV upload failed");
+          showToast(`Imported ${data.imported} contacts from CSV!`);
+          reloadContacts();
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          e.target.value = "";
+        }
+      };
+
+      const handleDeleteContact = async (cid) => {
+        if (!confirm("Delete contact?")) return;
+        try {
+          const res = await fetch(`${API_BASE}/api/contacts/${cid}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) throw new Error("Delete failed");
+          showToast("Contact deleted");
+          reloadContacts();
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      return (
+        <div className="p-8 max-w-7xl mx-auto w-full">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <div>
+              <h1 className="text-2xl font-bold text-text-primary tracking-tight">Audience Contacts</h1>
+              <p className="text-xs text-text-muted mt-1">
+                Manage recipient leads, populate mock demonstration data, or upload CSV contact rosters.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 self-start">
+              <input
+                type="file"
+                accept=".csv"
+                ref={fileInputRef}
+                onChange={handleCsvUpload}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3.5 py-2 bg-charcoal hover:bg-graphite border border-silver-muted/20 text-silver font-semibold rounded-xl text-xs transition-all flex items-center gap-2"
+              >
+                <span>📁</span>
+                <span>Upload CSV</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleImportMock}
+                className="px-3.5 py-2 bg-charcoal hover:bg-graphite border border-gold/40 text-gold-bright font-semibold rounded-xl text-xs transition-all flex items-center gap-2"
+              >
+                <span>⚡</span>
+                <span>Import Mock Leads</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(true)}
+                className="px-4 py-2 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-lg transition-all"
+              >
+                <span>+ Add Contact</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Contacts Table */}
+          <div className="bg-graphite border border-silver-muted/20 rounded-2xl overflow-hidden shadow-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-silver-muted/15 bg-charcoal text-silver-muted font-bold uppercase tracking-wider text-[10px]">
+                    <th className="py-3 px-4">Contact</th>
+                    <th className="py-3 px-4">Company</th>
+                    <th className="py-3 px-4">Role / Title</th>
+                    <th className="py-3 px-4">Interests / Custom Variables</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-silver-muted/10">
+                  {contacts.map((c) => (
+                    <tr key={c.id} className="hover:bg-charcoal/40 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="font-bold text-text-primary">{c.name}</div>
+                        <div className="text-[11px] text-silver-muted">{c.email}</div>
+                      </td>
+                      <td className="py-3 px-4 text-silver-bright font-medium">{c.company || "—"}</td>
+                      <td className="py-3 px-4 text-text-muted">{c.role || "—"}</td>
+                      <td className="py-3 px-4">
+                        {c.custom_variables && Object.keys(c.custom_variables).length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(c.custom_variables).map(([k, v]) => (
+                              <span key={k} className="px-2 py-0.5 rounded-md text-[10px] bg-charcoal text-gold-bright border border-gold/20 font-mono">
+                                {k}: {String(v)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-text-muted text-[11px]">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => onSelectContactForGenerator(c)}
+                          className="px-2.5 py-1 bg-charcoal hover:bg-graphite text-gold-bright border border-gold/30 rounded-lg text-xs font-semibold"
+                        >
+                          Generate Email
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteContact(c.id)}
+                          className="p-1 hover:text-rose-400 text-text-muted text-xs"
+                          title="Delete Contact"
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {contacts.length === 0 && (
+                    <tr>
+                      <td colSpan="5" className="py-12 text-center text-text-muted italic">
+                        No contacts available. Click "Import Mock Leads" above to populate sample contacts.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Add Contact Modal */}
+          {showAddModal && (
+            <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-graphite border border-silver-muted/20 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+                <h3 className="text-base font-bold text-text-primary mb-1">Add New Contact</h3>
+                <p className="text-xs text-text-muted mb-4">Enter recipient details for personalized RAG outreach.</p>
+                <form onSubmit={handleAddContact} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-silver-muted mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Sarah Connor"
+                      className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-silver-muted mb-1">Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="sarah@example.com"
+                      className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-silver-muted mb-1">Company</label>
+                    <input
+                      type="text"
+                      value={company}
+                      onChange={(e) => setCompany(e.target.value)}
+                      placeholder="e.g. Cyberdyne Systems"
+                      className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-silver-muted mb-1">Role / Job Title</label>
+                    <input
+                      type="text"
+                      value={role}
+                      onChange={(e) => setRole(e.target.value)}
+                      placeholder="e.g. Chief Security Officer"
+                      className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2 border-t border-silver-muted/15">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddModal(false)}
+                      className="px-4 py-2 bg-charcoal border border-silver-muted/20 text-silver hover:text-text-primary rounded-xl text-xs"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs"
+                    >
+                      Save Contact
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------
+    // VIEW 3: QUICK EMAIL STUDIO (Instant 1-on-1 RAG Email Draft)
+    // -------------------------------------------------------------
+    function EmailGeneratorView({ token, bots, activeBot, contacts, showToast }) {
+      const [selectedBotId, setSelectedBotId] = useState(activeBot?.id || bots[0]?.id || "");
+      const [selectedContactId, setSelectedContactId] = useState(contacts[0]?.id || "");
+      const [goal, setGoal] = useState("");
+      const [instructions, setInstructions] = useState("");
+      const [isGenerating, setIsGenerating] = useState(false);
+      const [generatedDraft, setGeneratedDraft] = useState(null);
+
+      useEffect(() => {
+        if (bots.length > 0 && !selectedBotId) setSelectedBotId(bots[0].id);
+      }, [bots]);
+
+      useEffect(() => {
+        if (contacts.length > 0 && !selectedContactId) setSelectedContactId(contacts[0].id);
+      }, [contacts]);
+
+      const handleGenerate = async (e) => {
+        e.preventDefault();
+        if (!selectedBotId || !selectedContactId) return;
+
+        setIsGenerating(true);
+        try {
+          const res = await fetch(
+            `${API_BASE}/api/bots/${selectedBotId}/contacts/${selectedContactId}/generate-email`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                campaign_goal: goal || undefined,
+                custom_instructions: instructions || undefined,
+              }),
+            }
+          );
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Generation failed");
+          setGeneratedDraft(data);
+          showToast("Personalized email draft created successfully!");
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          setIsGenerating(false);
+        }
+      };
+
+      return (
+        <div className="p-8 max-w-7xl mx-auto w-full">
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-text-primary tracking-tight">AI Email Studio</h1>
+            <p className="text-xs text-text-muted mt-1">
+              Test real-time personalized email generation combining recipient context with website knowledge.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Generation Controls */}
+            <div className="lg:col-span-5 bg-graphite border border-silver-muted/20 rounded-2xl p-6 shadow-xl space-y-4">
+              <h3 className="text-sm font-bold text-text-primary pb-3 border-b border-silver-muted/15">
+                Outreach Parameters
+              </h3>
+
+              <form onSubmit={handleGenerate} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-silver-muted mb-1">Target Recipient</label>
+                  <select
+                    value={selectedContactId}
+                    onChange={(e) => setSelectedContactId(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                  >
+                    {contacts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} — {c.company || c.email} ({c.role || "Lead"})
+                      </option>
+                    ))}
+                    {contacts.length === 0 && <option value="">No contacts found</option>}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-silver-muted mb-1">Knowledge Source (Website Bot)</label>
+                  <select
+                    value={selectedBotId}
+                    onChange={(e) => setSelectedBotId(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                  >
+                    {bots.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.website_url})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-silver-muted mb-1">Outreach Goal / Angle</label>
+                  <input
+                    type="text"
+                    value={goal}
+                    onChange={(e) => setGoal(e.target.value)}
+                    placeholder="e.g. Introduce enterprise AI capabilities and offer demo"
+                    className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-silver-muted mb-1">Special Copywriting Instructions</label>
+                  <textarea
+                    rows="3"
+                    value={instructions}
+                    onChange={(e) => setInstructions(e.target.value)}
+                    placeholder="e.g. Keep concise under 120 words. Focus on ROI and automated workflows."
+                    className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold resize-none"
+                  ></textarea>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isGenerating || !selectedBotId || !selectedContactId}
+                  className="w-full py-3 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  <span>{isGenerating ? "⏳ Synthesizing Knowledge..." : "✨ Generate Personalized Email"}</span>
+                </button>
+              </form>
+            </div>
+
+            {/* Generated Output Preview */}
+            <div className="lg:col-span-7 bg-graphite border border-silver-muted/20 rounded-2xl p-6 shadow-xl flex flex-col">
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-silver-muted/15">
+                <h3 className="text-sm font-bold text-text-primary">Generated Draft Preview</h3>
+                {generatedDraft && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-charcoal text-gold-bright border border-gold/30">
+                    {generatedDraft.retrieved_chunks_count} knowledge chunks retrieved
+                  </span>
+                )}
+              </div>
+
+              {generatedDraft ? (
+                <div className="space-y-4 flex-1 flex flex-col">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-bold text-silver-muted uppercase tracking-wider">Subject</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(generatedDraft.subject);
+                          showToast("Subject copied!");
+                        }}
+                        className="text-[11px] text-gold-bright hover:underline"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <div className="p-3 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary font-bold">
+                      {generatedDraft.subject}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 flex flex-col">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-bold text-silver-muted uppercase tracking-wider">Email Body</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(generatedDraft.body);
+                          showToast("Body copied!");
+                        }}
+                        className="text-[11px] text-gold-bright hover:underline"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <div className="flex-1 p-4 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary leading-relaxed whitespace-pre-wrap font-sans overflow-y-auto">
+                      {generatedDraft.body}
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-silver-muted/15 flex justify-between items-center text-[11px] text-text-muted">
+                    <span>Target: {generatedDraft.recipient_name} ({generatedDraft.recipient_email})</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`Subject: ${generatedDraft.subject}\n\n${generatedDraft.body}`);
+                        showToast("Entire draft copied to clipboard!");
+                      }}
+                      className="px-3 py-1.5 bg-charcoal hover:bg-charcoal-deep border border-gold/30 text-gold-bright font-bold rounded-xl text-xs transition-all"
+                    >
+                      📋 Copy Full Email
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-text-muted italic border border-dashed border-silver-muted/20 rounded-xl">
+                  <span className="text-3xl mb-2">✉️</span>
+                  <p className="text-xs">Select a recipient and click "Generate Personalized Email" to preview the RAG draft here.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------
+    // VIEW 4: CRAWL & KNOWLEDGE VIEW (Retained & Enhanced)
+    // -------------------------------------------------------------
+    function CrawlKnowledgeView({ token, bot, onBotUpdated, showToast }) {
+      const [isCrawling, setIsCrawling] = useState(false);
+      const [crawlStats, setCrawlStats] = useState(null);
+      const [pages, setPages] = useState([]);
+      const [activeTab, setActiveTab] = useState("overview");
+
+      useEffect(() => {
+        if (bot) {
+          loadCrawlData();
+        }
+      }, [bot]);
+
+      const loadCrawlData = () => {
+        if (!bot) return;
+        fetch(`${API_BASE}/api/bots/${bot.id}/pages`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then((res) => res.json())
+          .then((data) => setPages(data.pages || []))
+          .catch((err) => console.error("Failed loading pages:", err));
+
+
+        fetch(`${API_BASE}/api/bots/${bot.id}/crawl/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            setCrawlStats(data);
+            if (data.status === "CRAWLING" || data.status === "PROCESSING" || data.status === "INDEXING") {
+              setTimeout(loadCrawlData, 3000);
+            }
+          })
+          .catch(() => {});
+      };
+
+      const handleTriggerCrawl = async () => {
+        if (!bot) return;
+        setIsCrawling(true);
+        try {
+          const res = await fetch(`${API_BASE}/api/bots/${bot.id}/crawl`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ max_pages: 50 }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "Crawl initiation failed");
+          showToast("Crawler dispatched. Ingesting website pages...");
+          loadCrawlData();
+          onBotUpdated();
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          setIsCrawling(false);
+        }
+      };
+
+      if (!bot) {
+        return (
+          <div className="p-8 text-center text-text-muted">
+            Please select or create a website source from the sidebar.
+          </div>
+        );
+      }
+
+      return (
+        <div className="p-8 max-w-7xl mx-auto w-full">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-text-primary tracking-tight">{bot.name}</h1>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-charcoal text-gold border border-gold/30">
+                  {bot.status}
+                </span>
+              </div>
+              <p className="text-xs text-text-muted mt-1">{bot.website_url}</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleTriggerCrawl}
+              disabled={isCrawling || bot.status === "CRAWLING"}
+              className="px-4 py-2.5 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg transition-all self-start disabled:opacity-50"
+            >
+              <span>{isCrawling ? "⏳ Crawling..." : "🔄 Re-Crawl & Index Website"}</span>
+            </button>
+          </div>
+
+          <div className="bg-graphite border border-silver-muted/20 rounded-2xl p-6 shadow-xl">
+            <h3 className="text-sm font-bold text-text-primary mb-4">Indexed Knowledge Pages ({pages.length})</h3>
+            <div className="divide-y divide-silver-muted/10 max-h-96 overflow-y-auto">
+              {pages.map((p) => (
+                <div key={p.id} className="py-3 px-2 flex items-center justify-between hover:bg-charcoal/40 rounded-lg">
+                  <div className="truncate pr-4">
+                    <div className="text-xs font-bold text-silver-bright truncate">{p.title || p.url}</div>
+                    <div className="text-[11px] text-text-muted truncate">{p.url}</div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-charcoal text-emerald-400 border border-emerald-500/20 shrink-0">
+                    {p.crawl_status || "SUCCESS"}
+                  </span>
+                </div>
+              ))}
+              {pages.length === 0 && (
+                <p className="py-8 text-center text-xs text-text-muted italic">
+                  No indexed pages found yet. Click "Re-Crawl & Index Website" to populate knowledge.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------
+    // VIEW 5: BOTS OVERVIEW VIEW (Retained for Test & Source Mgmt)
+    // -------------------------------------------------------------
+    function BotsOverviewView({ token, bots, activeBot, onSelectBot, onNewBot, onGoToCrawl }) {
+      return (
+        <div className="p-8 max-w-7xl mx-auto w-full">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-2xl font-bold text-text-primary">Website Knowledge Sources</h1>
+              <p className="text-xs text-text-muted mt-1">Configured website domains acting as source material for RAG outreach.</p>
+            </div>
+            <button
+              type="button"
+              onClick={onNewBot}
+              className="px-4 py-2 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs shadow-lg"
+            >
+              + Add New Website
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {bots.map((b) => (
+              <div
+                key={b.id}
+                onClick={() => onSelectBot(b)}
+                className={`p-5 rounded-2xl border transition-all cursor-pointer ${
+                  activeBot?.id === b.id
+                    ? "bg-graphite border-gold shadow-lg shadow-gold/5"
+                    : "bg-charcoal border-silver-muted/20 hover:border-silver-muted/40"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-bold text-sm text-text-primary">{b.name}</h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-charcoal-deep text-gold border border-gold/30">
+                    {b.status}
+                  </span>
+                </div>
+                <p className="text-xs text-text-muted truncate mb-4">{b.website_url}</p>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onSelectBot(b); onGoToCrawl(); }}
+                  className="w-full py-1.5 bg-charcoal hover:bg-charcoal-deep border border-silver-muted/20 text-silver-bright rounded-lg text-xs font-semibold"
+                >
+                  Manage Knowledge & Crawl
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------
+    // VIEW 6: BRANDING CUSTOMIZER VIEW (Retained for Test Suite)
+    // -------------------------------------------------------------
+    function BrandingCustomizerView({ token, bot, showToast }) {
+      const [branding, setBranding] = useState({
+        company_name: "",
+        primary_color: "#D6A84F",
+        welcome_message: "How can I help you?",
+        position: "bottom-right",
+      });
+
+      useEffect(() => {
+        if (bot) {
+          fetch(`${API_BASE}/api/bots/${bot.id}/branding`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+            .then((res) => res.json())
+            .then((data) => setBranding(data))
+            .catch(() => {});
+        }
+      }, [bot]);
+
+      const handleSave = async (e) => {
+        e.preventDefault();
+        try {
+          const res = await fetch(`${API_BASE}/api/bots/${bot.id}/branding`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(branding),
+          });
+          if (!res.ok) throw new Error("Failed to save branding");
+          showToast("Branding settings saved successfully.");
+        } catch (err) {
+          alert(err.message);
+        }
+      };
+
+      if (!bot) return <div className="p-8 text-center text-text-muted">Select a bot first.</div>;
+
+      return (
+        <div className="p-8 max-w-4xl mx-auto w-full">
+          <h1 className="text-2xl font-bold text-text-primary mb-6">Branding Settings</h1>
+          <form onSubmit={handleSave} className="bg-graphite border border-silver-muted/20 rounded-2xl p-6 space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-silver-muted mb-1">Company / Brand Name</label>
+              <input
+                type="text"
+                value={branding.company_name || ""}
+                onChange={(e) => setBranding({ ...branding, company_name: e.target.value })}
+                className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-silver-muted mb-1">Primary Color</label>
+              <input
+                type="color"
+                value={branding.primary_color || "#D6A84F"}
+                onChange={(e) => setBranding({ ...branding, primary_color: e.target.value })}
+                className="h-9 w-20 bg-charcoal rounded border border-silver-muted/20 cursor-pointer"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-silver-muted mb-1">Position</label>
+              <select
+                value={branding.position || "bottom-right"}
+                onChange={(e) => setBranding({ ...branding, position: e.target.value })}
+                className="w-full px-3 py-2 bg-charcoal border border-silver-muted/20 rounded-xl text-xs text-text-primary focus:outline-none focus:border-gold"
+              >
+                <option value="bottom-right">Bottom Right</option>
+                <option value="bottom-left">Bottom Left</option>
+              </select>
+            </div>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs"
+            >
+              Save Branding
+            </button>
+          </form>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------
+    // VIEW 7: EMBED CODE VIEW (Retained for Test Suite)
+    // -------------------------------------------------------------
+    function EmbedCodeView({ bot, showToast }) {
+      if (!bot) return <div className="p-8 text-center text-text-muted">Select a bot first.</div>;
+
+      const snippet = '<' + 'script src="' + API_BASE + '/static/widget.js" data-bot-id="' + bot.id + '" defer><' + '/script>';
+
+      return (
+        <div className="p-8 max-w-4xl mx-auto w-full">
+          <h1 className="text-2xl font-bold text-text-primary mb-2">Embed Code Snippet</h1>
+          <p className="text-xs text-text-muted mb-6">Embed the web conversational widget on any web property.</p>
+          <div className="bg-graphite border border-silver-muted/20 rounded-2xl p-6">
+            <pre className="p-4 bg-charcoal rounded-xl text-xs font-mono text-gold-bright overflow-x-auto mb-4">
+              {snippet}
+            </pre>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(snippet);
+                showToast("Snippet copied to clipboard!");
+              }}
+              className="px-4 py-2 bg-gold hover:bg-gold-bright text-charcoal-deep font-bold rounded-xl text-xs"
+            >
+              Copy Embed Code
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // -------------------------------------------------------------
+    // VIEW 8: CONVERSATIONS VIEW (Retained for Test Suite)
+    // -------------------------------------------------------------
+    function ConversationsView({ token, bot }) {
+      const [convs, setConvs] = useState([]);
+
+      useEffect(() => {
+        if (bot) {
+          fetch(`${API_BASE}/api/bots/${bot.id}/conversations`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+            .then((res) => res.json())
+            .then((data) => setConvs(data.conversations || []))
+            .catch(() => {});
+        }
+      }, [bot]);
+
+      if (!bot) return <div className="p-8 text-center text-text-muted">Select a bot first.</div>;
+
+      return (
+        <div className="p-8 max-w-4xl mx-auto w-full">
+          <h1 className="text-2xl font-bold text-text-primary mb-2">Visitor Chat Transcripts</h1>
+          <p className="text-xs text-text-muted mb-6">Review multi-turn chat sessions for {bot.name}.</p>
+          <div className="bg-graphite border border-silver-muted/20 rounded-2xl p-6">
+            <div className="divide-y divide-silver-muted/10">
+              {convs.map((c) => (
+                <div key={c.id} className="py-3 flex justify-between items-center text-xs">
+                  <span className="font-mono text-silver-bright">{c.session_id}</span>
+                  <span className="text-text-muted">{c.message_count} turns</span>
+                </div>
+              ))}
+              {convs.length === 0 && (
+                <p className="py-8 text-center text-xs text-text-muted italic">No conversations recorded yet.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById("root"));
+  </script>
+</body>
+</html>

@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Website Chatbot</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Marked.js for Markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- DOMPurify for sanitization -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+  <!-- React & ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel Standalone -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: transparent;
+    }
+    .chat-bubble-assistant p {
+      margin-bottom: 0.5rem;
+    }
+    .chat-bubble-assistant p:last-child {
+      margin-bottom: 0;
+    }
+    .chat-bubble-assistant ul, .chat-bubble-assistant ol {
+      margin-left: 1.25rem;
+      margin-bottom: 0.5rem;
+    }
+    .chat-bubble-assistant ul {
+      list-style-type: disc;
+    }
+    .chat-bubble-assistant ol {
+      list-style-type: decimal;
+    }
+    .chat-bubble-assistant code {
+      background: rgba(0, 0, 0, 0.06);
+      padding: 0.1rem 0.3rem;
+      border-radius: 0.25rem;
+      font-size: 0.85em;
+    }
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #e2e8f0;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #cbd5e1;
+    }
+    @keyframes pulse-dots {
+      0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+    .dot1 { animation: pulse-dots 1.4s infinite ease-in-out both; animation-delay: -0.32s; }
+    .dot2 { animation: pulse-dots 1.4s infinite ease-in-out both; animation-delay: -0.16s; }
+    .dot3 { animation: pulse-dots 1.4s infinite ease-in-out both; }
+  </style>
+</head>
+<body class="bg-transparent">
+  <div id="root" class="h-screen w-screen flex flex-col bg-white overflow-hidden shadow-2xl rounded-2xl border border-slate-200"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function ChatApp() {
+      const [botId, setBotId] = useState("");
+      const [apiHost, setApiHost] = useState("");
+      const [config, setConfig] = useState(null);
+      const [messages, setMessages] = useState([]);
+      const [input, setInput] = useState("");
+      const [isLoading, setIsLoading] = useState(false);
+      const [sessionId, setSessionId] = useState("");
+      const messagesEndRef = useRef(null);
+      const inputRef = useRef(null);
+
+      // Parse bot_id and api_host from query string
+      useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const bId = params.get("bot_id") || "";
+        const aHost = params.get("api_host") || window.location.origin;
+        setBotId(bId);
+        setApiHost(aHost);
+
+        // Session ID from sessionStorage
+        const savedSessionKey = `rag_chat_session_${bId}`;
+        let currentSession = sessionStorage.getItem(savedSessionKey);
+        if (!currentSession) {
+          currentSession = "sess_" + Math.random().toString(36).substring(2, 12);
+          sessionStorage.setItem(savedSessionKey, currentSession);
+        }
+        setSessionId(currentSession);
+
+        // Fetch widget config (cache-busted to ensure real-time branding updates)
+        if (bId) {
+          fetch(`${aHost}/api/bots/${bId}/widget-config?_t=${Date.now()}`, { cache: "no-store" })
+            .then(res => {
+              if (!res.ok) throw new Error("Failed to load bot config");
+              return res.json();
+            })
+            .then(data => {
+              setConfig(data);
+              // Set initial welcome greeting
+              setMessages([
+                {
+                  id: "msg-welcome",
+                  role: "assistant",
+                  content: data.greeting_message || `Hi! I am the AI assistant for ${data.bot_name}. Ask me anything about our website!`,
+                  sources: [],
+                  createdAt: new Date(),
+                }
+              ]);
+            })
+            .catch(err => {
+              console.error("Error loading widget config:", err);
+              setConfig({
+                bot_name: "Assistant",
+                branding: {
+                  primary_color: "#2563EB",
+                  company_name: "AI Assistant",
+                }
+              });
+            });
+        }
+      }, []);
+
+      // Auto-scroll to bottom on messages change
+      useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, [messages, isLoading]);
+
+      const primaryColor = config?.branding?.primary_color || "#2563EB";
+      const backgroundColor = config?.branding?.background_color || "#FFFFFF";
+      const textColor = config?.branding?.text_color || "#111827";
+      const fontFamily = config?.branding?.font_family || "Inter, system-ui, sans-serif";
+      const botName = config?.branding?.company_name || config?.bot_name || "Website Assistant";
+      const rawLogoUrl = (config?.branding?.logo_url || "").trim();
+      const dummyMarkers = ["no-image", "no_image", "noimage", "placeholder", "dummy", "blank.gif", "spacer.gif", "default-image", "data:image"];
+      const logoUrl = (rawLogoUrl && !dummyMarkers.some(m => rawLogoUrl.toLowerCase().includes(m))) ? rawLogoUrl : null;
+
+      const handleClose = () => {
+        window.parent.postMessage({ type: "CLOSE_CHAT" }, "*");
+      };
+
+      const handleReset = () => {
+        const newSession = "sess_" + Math.random().toString(36).substring(2, 12);
+        sessionStorage.setItem(`rag_chat_session_${botId}`, newSession);
+        setSessionId(newSession);
+        setMessages([
+          {
+            id: "msg-welcome-" + Date.now(),
+            role: "assistant",
+            content: config?.greeting_message || `Conversation restarted. How can I help you today?`,
+            sources: [],
+            createdAt: new Date(),
+          }
+        ]);
+      };
+
+      const handleSendMessage = async (e) => {
+        e.preventDefault();
+        const trimmed = input.trim();
+        if (!trimmed || isLoading || !botId) return;
+
+        const userMsg = {
+          id: "user-" + Date.now(),
+          role: "user",
+          content: trimmed,
+          createdAt: new Date(),
+        };
+
+        const asstMsgId = "asst-" + Date.now();
+        const initialAsstMsg = {
+          id: asstMsgId,
+          role: "assistant",
+          content: "",
+          sources: [],
+          createdAt: new Date(),
+        };
+
+        setMessages(prev => [...prev, userMsg, initialAsstMsg]);
+        setInput("");
+        setIsLoading(true);
+
+        try {
+          // Stream using SSE endpoint
+          const response = await fetch(`${apiHost}/api/bots/${botId}/chat/stream`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              query: trimmed,
+              session_id: sessionId,
+              stream: true,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder("utf-8");
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (trimmedLine.startsWith("data: ")) {
+                try {
+                  const eventData = JSON.parse(trimmedLine.substring(6));
+                  if (eventData.type === "start" && eventData.sources) {
+                    setMessages(prev => prev.map(m =>
+                      m.id === asstMsgId ? { ...m, sources: eventData.sources } : m
+                    ));
+                  } else if (eventData.type === "token" && eventData.token) {
+                    setMessages(prev => prev.map(m =>
+                      m.id === asstMsgId ? { ...m, content: m.content + eventData.token } : m
+                    ));
+                  } else if (eventData.type === "end") {
+                    if (eventData.full_answer) {
+                      setMessages(prev => prev.map(m =>
+                        m.id === asstMsgId ? { ...m, content: eventData.full_answer } : m
+                      ));
+                    }
+                  }
+                } catch (parseErr) {
+                  console.error("SSE parse error:", parseErr);
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Chat error:", err);
+          setMessages(prev => prev.map(m =>
+            m.id === asstMsgId
+              ? {
+                  ...m,
+                  content: "I'm sorry, I'm having trouble answering right now. Please try again shortly.",
+                }
+              : m
+          ));
+        } finally {
+          setIsLoading(false);
+          setTimeout(() => inputRef.current?.focus(), 50);
+        }
+      };
+
+      const renderMarkdown = (text) => {
+        if (!text) return { __html: "" };
+        const rawHtml = marked.parse(text);
+        const cleanHtml = DOMPurify.sanitize(rawHtml);
+        return { __html: cleanHtml };
+      };
+
+      return (
+        <div
+          className="flex flex-col h-full select-none"
+          style={{
+            backgroundColor: backgroundColor,
+            color: textColor,
+            fontFamily: fontFamily,
+          }}
+        >
+          {/* Header */}
+          <div
+            className="flex items-center justify-between px-4 py-3 text-white shadow-sm shrink-0"
+            style={{ backgroundColor: primaryColor }}
+          >
+            <div className="flex items-center gap-3">
+              {logoUrl ? (
+                <img
+                  src={logoUrl}
+                  alt="Logo"
+                  className="w-8 h-8 rounded-full bg-white p-0.5 object-contain shadow-sm border border-white/20"
+                  onError={(e) => { e.target.style.display = 'none'; if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex'; }}
+                />
+              ) : null}
+              <div
+                className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-bold text-sm"
+                style={{ display: logoUrl ? 'none' : 'flex' }}
+              >
+                {botName.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <h1 className="font-semibold text-sm leading-tight">{botName}</h1>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span className="text-xs text-white/80">Online • AI Knowledge Assistant</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleReset}
+                title="Restart Conversation"
+                className="p-1.5 rounded-lg hover:bg-white/20 transition-colors text-white/90 hover:text-white"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+              <button
+                onClick={handleClose}
+                title="Close Chat"
+                className="p-1.5 rounded-lg hover:bg-white/20 transition-colors text-white/90 hover:text-white"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Message List */}
+          <div
+            className="flex-1 overflow-y-auto p-4 space-y-4 select-text"
+            style={{ backgroundColor: backgroundColor }}
+          >
+            {messages.map((msg) => {
+              const isUser = msg.role === "user";
+              return (
+                <div key={msg.id} className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
+                      isUser
+                        ? "text-white rounded-br-none"
+                        : "rounded-bl-none chat-bubble-assistant"
+                    }`}
+                    style={
+                      isUser
+                        ? { backgroundColor: primaryColor, color: "#FFFFFF" }
+                        : {
+                            backgroundColor: backgroundColor === "#FFFFFF" ? "#F8FAFC" : backgroundColor,
+                            color: textColor,
+                            border: "1px solid rgba(158, 163, 170, 0.25)",
+                          }
+                    }
+                  >
+                    {isUser ? (
+                      <div>{msg.content}</div>
+                    ) : (
+                      <div dangerouslySetInnerHTML={renderMarkdown(msg.content)} />
+                    )}
+                  </div>
+
+                  {/* Source Citations Badges */}
+                  {!isUser && msg.sources && msg.sources.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5 max-w-[85%]">
+                      <span className="text-[11px] font-medium text-slate-600 flex items-center gap-1 mr-1">
+                        Sources:
+                      </span>
+                      {msg.sources.map((src, idx) => (
+                        <a
+                          key={idx}
+                          href={src.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 border border-slate-200 text-[11px] transition-colors"
+                          title={`${src.title} (${src.url})`}
+                        >
+                          <svg className="w-3 h-3 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                          <span className="truncate max-w-[140px] font-medium">{src.title || "Page"}</span>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Typing Indicator */}
+            {isLoading && messages[messages.length - 1]?.content === "" && (
+              <div className="flex items-center gap-1.5 p-3 bg-white border border-slate-200 rounded-2xl rounded-bl-none w-16 shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-slate-400 dot1"></span>
+                <span className="w-2 h-2 rounded-full bg-slate-400 dot2"></span>
+                <span className="w-2 h-2 rounded-full bg-slate-400 dot3"></span>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input Footer */}
+          <div
+            className="p-3 border-t shrink-0"
+            style={{
+              backgroundColor: backgroundColor,
+              borderColor: "rgba(158, 163, 170, 0.2)",
+            }}
+          >
+            <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask a question about this website..."
+                disabled={isLoading}
+                className="flex-1 px-4 py-2.5 text-sm rounded-full border focus:outline-none transition-all placeholder:opacity-60"
+                style={{
+                  backgroundColor: "rgba(158, 163, 170, 0.08)",
+                  color: textColor,
+                  borderColor: "rgba(158, 163, 170, 0.25)",
+                }}
+              />
+              <button
+                type="submit"
+                disabled={!input.trim() || isLoading}
+                className="p-2.5 rounded-full text-white shadow-sm hover:opacity-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all transform active:scale-95 flex items-center justify-center shrink-0"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>
+              </button>
+            </form>
+            <div className="flex items-center justify-center gap-1 text-[10px] text-slate-400 mt-2">
+              <span>Powered by</span>
+              <span className="font-semibold text-slate-500">Website RAG Platform</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const rootElement = document.getElementById("root");
+    if (ReactDOM.createRoot) {
+      ReactDOM.createRoot(rootElement).render(<ChatApp />);
+    } else {
+      ReactDOM.render(<ChatApp />, rootElement);
+    }
+  </script>
+</body>
+</html>
+
